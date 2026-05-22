@@ -23,20 +23,50 @@ export function SettingsPage() {
                   <div className="h-14 w-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-lg font-bold">
                     {userInitials(user.full_name)}
                   </div>
-                  <div>
-                    <p className="font-semibold">{user.full_name}</p>
-                    <p className="text-sm text-muted-foreground">{user.email}</p>
-                    <p className="text-sm text-muted-foreground">{user.company_name}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{user.full_name}</p>
+                    <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                    {user.company_name && (
+                      <p className="text-sm text-muted-foreground truncate">{user.company_name}</p>
+                    )}
                   </div>
                 </div>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
-                    <dt className="text-muted-foreground">Member since</dt>
-                    <dd className="font-medium">{formatDate(user.created_at)}</dd>
+                    <dt className="text-muted-foreground">Role</dt>
+                    <dd className="font-medium capitalize">{user.role}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">Status</dt>
                     <dd className="font-medium">{user.is_active ? "Active" : "Disabled"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Phone</dt>
+                    <dd className="font-medium">{user.phone || "—"}</dd>
+                  </div>
+                  {user.role === "driver" && (
+                    <div>
+                      <dt className="text-muted-foreground">Trustworthiness</dt>
+                      <dd className="font-medium">{user.trustworthiness}</dd>
+                    </div>
+                  )}
+                  {(user.role === "sender" || user.role === "receiver") && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-muted-foreground">Address</dt>
+                      <dd className="font-medium">{user.address || "—"}</dd>
+                    </div>
+                  )}
+                  {(user.lat != null || user.lng != null) && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-muted-foreground">Coordinates</dt>
+                      <dd className="font-medium font-mono text-xs">
+                        {user.lat ?? "—"}, {user.lng ?? "—"}
+                      </dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt className="text-muted-foreground">Member since</dt>
+                    <dd className="font-medium">{formatDate(user.created_at)}</dd>
                   </div>
                 </dl>
               </>

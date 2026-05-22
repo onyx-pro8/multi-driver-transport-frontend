@@ -1,17 +1,26 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Loader2, MapPin, PenLine } from "lucide-react";
+import { Hexagon, Loader2, PenLine, Pentagon, Plane, Ship, Truck } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getResolution, isValidCell } from "h3-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { createDriverZone, updateDriverZone } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import type { CellInputMode, ConvertH3Response, DriverZone } from "@/types";
+import { cn, currencyLabel } from "@/lib/utils";
+import {
+  CURRENCIES,
+  type CellInputMode,
+  type ConvertH3Response,
+  type Currency,
+  type DriverZone,
+  type LatLngPoint,
+  type TransportMode,
+} from "@/types";
 
 const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
   ssr: false,
@@ -23,6 +32,12 @@ const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) =>
 });
 
 const RESOLUTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+const TRANSPORT_OPTIONS: { mode: TransportMode; label: string; icon: typeof Plane }[] = [
+  { mode: "land", label: "Land", icon: Truck },
+  { mode: "air", label: "Air", icon: Plane },
+  { mode: "sea", label: "Sea", icon: Ship },
+];
 
 interface Props {
   zones: DriverZone[];
@@ -53,6 +68,12 @@ export function AddDriverZoneForm({
   const [resolution, setResolution] = useState("7");
   const [mode, setMode] = useState<CellInputMode>("draw");
   const [selectedCells, setSelectedCells] = useState<string[]>([]);
+  const [boundary, setBoundary] = useState<LatLngPoint[]>([]);
+  const [transportMode, setTransportMode] = useState<TransportMode>("land");
+  const [rateCost, setRateCost] = useState("0");
+  const [currency, setCurrency] = useState<Currency>("USD");
+  const [available, setAvailable] = useState(true);
+  const [trustForwarder, setTrustForwarder] = useState(false);
   const [manualText, setManualText] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -63,17 +84,26 @@ export function AddDriverZoneForm({
       setResolution(String(editingZone.resolution));
       setSelectedCells(editingZone.h3_cells);
       setManualText(editingZone.h3_cells.join("\n"));
+      setTransportMode(editingZone.transport_mode ?? "land");
+      setRateCost(String(editingZone.rate_cost ?? 0));
+      setCurrency(editingZone.currency ?? "USD");
+      setAvailable(editingZone.available ?? true);
+      setTrustForwarder(editingZone.trust_payment_forwarder ?? false);
+      if (editingZone.boundary && editingZone.boundary.length >= 3) {
+        setBoundary(editingZone.boundary);
+        setMode("geofence");
+      } else {
+        setBoundary([]);
+        setMode("draw");
+      }
     }
   }, [editingZone]);
 
-  // Align zone resolution with the latest conversion (don't override while editing).
   useEffect(() => {
     if (editingZone || !conversion) return;
     setResolution(String(conversion.resolution));
   }, [conversion?.resolution, editingZone]);
 
-  // Keep manual textarea in sync with cells picked on the map so users can
-  // switch between modes without losing their selection.
   useEffect(() => {
     if (mode !== "manual") {
       setManualText(selectedCells.join("\n"));
@@ -82,7 +112,6 @@ export function AddDriverZoneForm({
 
   const resolutionNum = Number(resolution);
 
-  // In manual mode, derive selectedCells from the textarea (filtered by current resolution).
   useEffect(() => {
     if (mode === "manual") {
       const parsed = parseManualCells(manualText);
@@ -93,16 +122,15 @@ export function AddDriverZoneForm({
     }
   }, [manualText, mode, resolutionNum]);
 
-  // Drop stale cells whenever the user changes resolution — backend would
-  // otherwise reject the save with a resolution-mismatch error.
   useEffect(() => {
+    if (mode === "geofence") return;
     setSelectedCells((prev) => {
       const filtered = prev.filter(
         (c) => isValidCell(c) && getResolution(c) === resolutionNum
       );
       return filtered.length === prev.length ? prev : filtered;
     });
-  }, [resolutionNum]);
+  }, [resolutionNum, mode]);
 
   const invalidManual = useMemo(() => {
     if (mode !== "manual") return [];
@@ -115,7 +143,14 @@ export function AddDriverZoneForm({
     setDriverName("");
     setZoneName("");
     setSelectedCells([]);
+    setBoundary([]);
     setManualText("");
+    setTransportMode("land");
+    setRateCost("0");
+    setCurrency("USD");
+    setAvailable(true);
+    setTrustForwarder(false);
+    setMode("draw");
   }, []);
 
   const handleCancel = useCallback(() => {
@@ -129,29 +164,45 @@ export function AddDriverZoneForm({
       onMessage("Driver name is required.", "error");
       return;
     }
+    const rate = Number(rateCost);
+    if (!Number.isFinite(rate) || rate < 0) {
+      onMessage("Rate / cost must be a number ≥ 0.", "error");
+      return;
+    }
+
     const finalZoneName = zoneName.trim() || `${driverName.trim()} Zone`;
-    if (selectedCells.length === 0) {
+
+    if (mode === "geofence") {
+      if (boundary.length < 3) {
+        onMessage("Draw a geofence with at least 3 points on the map.", "error");
+        return;
+      }
+    } else if (selectedCells.length === 0) {
       onMessage("Select at least one H3 cell.", "error");
       return;
     }
 
+    const payload = {
+      driver_name: driverName.trim(),
+      zone_name: finalZoneName,
+      resolution: resolutionNum,
+      transport_mode: transportMode,
+      rate_cost: rate,
+      currency,
+      available,
+      trust_payment_forwarder: trustForwarder,
+      ...(mode === "geofence"
+        ? { boundary, h3_cells: undefined }
+        : { h3_cells: selectedCells, boundary: null }),
+    };
+
     setSaving(true);
     try {
       if (editingZone) {
-        await updateDriverZone(editingZone.id, {
-          driver_name: driverName.trim(),
-          zone_name: finalZoneName,
-          resolution: resolutionNum,
-          h3_cells: selectedCells,
-        });
+        await updateDriverZone(editingZone.id, payload);
         onMessage("Driver zone updated.", "success");
       } else {
-        await createDriverZone({
-          driver_name: driverName.trim(),
-          zone_name: finalZoneName,
-          resolution: resolutionNum,
-          h3_cells: selectedCells,
-        });
+        await createDriverZone(payload);
         onMessage("Driver zone saved.", "success");
       }
       clearForm();
@@ -166,6 +217,7 @@ export function AddDriverZoneForm({
 
   function clearSelection() {
     setSelectedCells([]);
+    setBoundary([]);
     setManualText("");
   }
 
@@ -185,7 +237,7 @@ export function AddDriverZoneForm({
             <div>
               <Label>Driver Name</Label>
               <Input
-                placeholder="e.g. Driver A"
+                placeholder="e.g. Your fleet driver name"
                 value={driverName}
                 onChange={(e) => setDriverName(e.target.value)}
                 required
@@ -199,20 +251,93 @@ export function AddDriverZoneForm({
                 onChange={(e) => setZoneName(e.target.value)}
               />
             </div>
-            <div>
-              <Label>H3 Resolution</Label>
-              <Select value={resolution} onChange={(e) => setResolution(e.target.value)}>
-                {RESOLUTIONS.map((r) => (
-                  <option key={r} value={String(r)}>
-                    {r}
-                  </option>
-                ))}
-              </Select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>H3 Resolution</Label>
+                <Select value={resolution} onChange={(e) => setResolution(e.target.value)}>
+                  {RESOLUTIONS.map((r) => (
+                    <option key={r} value={String(r)}>
+                      {r}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Rate / Cost</Label>
+                <div className="flex gap-2">
+                  <Input
+                    className="flex-1"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={rateCost}
+                    onChange={(e) => setRateCost(e.target.value)}
+                  />
+                  <Select
+                    className="w-28"
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value as Currency)}
+                    aria-label="Currency"
+                    title={currencyLabel(currency)}
+                  >
+                    {CURRENCIES.map((c) => (
+                      <option key={c} value={c} title={currencyLabel(c)}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
             </div>
 
             <div>
-              <Label>Add Cells By</Label>
-              <div className="mt-2 flex gap-2">
+              <Label>Transport mode</Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {TRANSPORT_OPTIONS.map(({ mode: m, label, icon: Icon }) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setTransportMode(m)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-xl border px-3 py-2 cursor-pointer transition-colors text-sm",
+                      transportMode === m
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border hover:bg-muted"
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <label
+                className={cn(
+                  "flex items-center gap-2 rounded-xl border px-3 py-2 cursor-pointer",
+                  available ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-muted"
+                )}
+              >
+                <Checkbox checked={available} onChange={(e) => setAvailable(e.target.checked)} />
+                Available for orders
+              </label>
+              <label
+                className={cn(
+                  "flex items-center gap-2 rounded-xl border px-3 py-2 cursor-pointer",
+                  trustForwarder ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-muted"
+                )}
+              >
+                <Checkbox
+                  checked={trustForwarder}
+                  onChange={(e) => setTrustForwarder(e.target.checked)}
+                />
+                Trust payment forwarder
+              </label>
+            </div>
+
+            <div>
+              <Label>Define zone by</Label>
+              <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   type="button"
                   variant={mode === "draw" ? "primary" : "outline"}
@@ -220,7 +345,16 @@ export function AddDriverZoneForm({
                   onClick={() => setMode("draw")}
                 >
                   <PenLine className="h-4 w-4" />
-                  Draw on Map
+                  H3 cells
+                </Button>
+                <Button
+                  type="button"
+                  variant={mode === "geofence" ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => setMode("geofence")}
+                >
+                  <Pentagon className="h-4 w-4" />
+                  Geofence
                 </Button>
                 <Button
                   type="button"
@@ -228,8 +362,8 @@ export function AddDriverZoneForm({
                   size="sm"
                   onClick={() => setMode("manual")}
                 >
-                  <MapPin className="h-4 w-4" />
-                  Enter H3 Cells
+                  <Hexagon className="h-4 w-4" />
+                  Cell IDs
                 </Button>
               </div>
             </div>
@@ -247,19 +381,33 @@ export function AddDriverZoneForm({
                 />
                 {invalidManual.length > 0 && (
                   <p className="text-xs text-danger mt-1">
-                    {invalidManual.length} cell ID(s) are invalid or don&apos;t match resolution {resolutionNum}
+                    {invalidManual.length} cell ID(s) are invalid or don&apos;t match resolution{" "}
+                    {resolutionNum}
                   </p>
                 )}
               </div>
             )}
 
             <p className="text-sm text-muted-foreground">
-              Selected cells: <span className="font-semibold text-foreground">{selectedCells.length}</span>
+              {mode === "geofence" ? (
+                <>
+                  Geofence vertices:{" "}
+                  <span className="font-semibold text-foreground">{boundary.length}</span>
+                  {boundary.length >= 3 && (
+                    <span className="text-success ml-1">(ready to save)</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  Selected cells:{" "}
+                  <span className="font-semibold text-foreground">{selectedCells.length}</span>
+                </>
+              )}
             </p>
 
             <div className="flex flex-wrap gap-2 pt-2">
               <Button type="button" variant="danger" onClick={clearSelection}>
-                Clear Selection
+                Clear
               </Button>
               <Button type="button" variant="ghost" onClick={handleCancel}>
                 Cancel
@@ -275,8 +423,11 @@ export function AddDriverZoneForm({
             <H3MapView
               height={360}
               resolution={resolutionNum}
-              selectedCells={selectedCells}
+              selectedCells={mode !== "geofence" ? selectedCells : []}
               onCellsChange={mode === "draw" ? setSelectedCells : undefined}
+              geofenceEnabled={mode === "geofence"}
+              boundary={boundary}
+              onBoundaryChange={mode === "geofence" ? setBoundary : undefined}
               savedZones={zones.filter((z) => z.id !== editingZone?.id)}
               conversion={conversion}
               drawEnabled={mode === "draw"}

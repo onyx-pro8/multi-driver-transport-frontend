@@ -1,13 +1,16 @@
+import { RoleGuard } from "@/components/auth/RoleGuard";
 import { DashboardShell } from "@/components/layout/DashboardShell";
-import { MilestoneOnePage } from "@/components/dashboard/MilestoneOnePage";
+import { DriverZonesPage } from "@/components/driver-zones/DriverZonesPage";
 
-export default function DriverZonesPage() {
+export default function Page() {
   return (
-    <DashboardShell
-      title="H3 Conversion & Driver Zone Creation"
-      subtitle="Convert locations to H3 cells and create driver zones."
-    >
-      <MilestoneOnePage />
-    </DashboardShell>
+    <RoleGuard allow={["driver", "admin"]}>
+      <DashboardShell
+        title="Driver Zones"
+        subtitle="Define coverage with H3 cells or geofences and set per-zone rates."
+      >
+        <DriverZonesPage />
+      </DashboardShell>
+    </RoleGuard>
   );
 }

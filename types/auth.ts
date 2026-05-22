@@ -1,10 +1,18 @@
 import type { DriverZone } from "./index";
 
+export type UserRole = "admin" | "driver" | "sender" | "receiver";
+
 export interface User {
   id: number;
   full_name: string;
   company_name: string;
   email: string;
+  role: UserRole;
+  phone: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  trustworthiness: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -29,7 +37,12 @@ export interface LoginRequest {
 
 export interface RegisterRequest {
   full_name: string;
-  company_name: string;
+  role: "driver" | "sender" | "receiver";
+  company_name?: string;
+  phone: string;
+  address?: string;
+  lat?: number | null;
+  lng?: number | null;
   email: string;
   password: string;
 }
@@ -43,12 +56,31 @@ export interface ResetPasswordRequest {
   password: string;
 }
 
-export interface DashboardStats {
+export interface DriverDashboardStats {
+  role: "driver";
   total_driver_zones: number;
+  available_zones: number;
   total_h3_cells: number;
-  total_drivers: number;
-  total_routes: number;
+  trustworthiness: number;
+  followers: number;
   recent_zones: DriverZone[];
-  milestone: number;
-  milestone_total: number;
 }
+
+export interface SenderDashboardStats {
+  role: "sender";
+  order_counts: { submitted: number; delivering: number; received: number };
+  total_orders: number;
+  available_drivers: number;
+  available_receivers: number;
+}
+
+export interface ReceiverDashboardStats {
+  role: "receiver";
+  order_counts: { submitted: number; delivering: number; received: number };
+  total_orders: number;
+}
+
+export type DashboardStats =
+  | DriverDashboardStats
+  | SenderDashboardStats
+  | ReceiverDashboardStats;

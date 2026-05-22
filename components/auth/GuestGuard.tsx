@@ -2,19 +2,19 @@
 
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/hooks/useAuth";
+import { defaultRouteForRole, useAuth } from "@/hooks/useAuth";
 
 export function GuestGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const redirect = searchParams.get("redirect") || "/dashboard";
+      const redirect = searchParams.get("redirect") || defaultRouteForRole(user?.role);
       router.replace(redirect);
     }
-  }, [isLoading, isAuthenticated, router, searchParams]);
+  }, [isLoading, isAuthenticated, router, searchParams, user?.role]);
 
   if (isLoading) {
     return (

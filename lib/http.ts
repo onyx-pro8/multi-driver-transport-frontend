@@ -43,10 +43,49 @@ export interface RequestOptions extends RequestInit {
   public?: boolean;
   /** Skip automatic token refresh retry */
   skipRefresh?: boolean;
+  /**
+   * Enable in-flight de-duplication + short-lived response caching for this
+   * GET request. Subsequent calls with the same key within `ttlMs` return the
+   * cached value instantly; concurrent callers share a single network request.
+   *
+   * Named `cacheOptions` to avoid shadowing the native `RequestInit.cache`
+   * field used by the Fetch API.
+   */
+  cacheOptions?: {
+    key?: string;
+    ttlMs?: number;
+  };
 }
 
-export async function apiRequest<T>(path: string, init?: RequestOptions): Promise<T> {
-  const { public: isPublic, skipRefresh, ...fetchInit } = init ?? {};
+interface CacheEntry {
+  value: unknown;
+  expiresAt: number;
+}
+
+const responseCache = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Promise<unknown>>();
+
+/** Drop everything that was cached. Call this after a mutation. */
+export function invalidateCache(prefix?: string): void {
+  if (!prefix) {
+    responseCache.clear();
+    return;
+  }
+  // Snapshot keys first so we can delete while iterating safely across
+  // tsconfig targets that don't support direct Map iteration.
+  const keys = Array.from(responseCache.keys());
+  for (const key of keys) {
+    if (key.startsWith(prefix)) responseCache.delete(key);
+  }
+}
+
+function isGet(method: string | undefined): boolean {
+  return !method || method.toUpperCase() === "GET";
+}
+
+async function performRequest<T>(path: string, init: RequestOptions | undefined): Promise<T> {
+  const { public: isPublic, skipRefresh, cacheOptions: _cacheOptions, ...fetchInit } = init ?? {};
+  void _cacheOptions;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -86,4 +125,44 @@ export async function apiRequest<T>(path: string, init?: RequestOptions): Promis
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+export async function apiRequest<T>(path: string, init?: RequestOptions): Promise<T> {
+  const method = init?.method;
+  const cacheable = isGet(method);
+
+  // Mutations bust the entire cache. Cheap and correct for a small app.
+  if (!cacheable) {
+    const result = await performRequest<T>(path, init);
+    invalidateCache();
+    return result;
+  }
+
+  const ttl = init?.cacheOptions?.ttlMs ?? 0;
+  const key = init?.cacheOptions?.key ?? path;
+
+  if (ttl > 0) {
+    const hit = responseCache.get(key);
+    if (hit && hit.expiresAt > Date.now()) {
+      return hit.value as T;
+    }
+  }
+
+  // Dedup concurrent calls to the same GET endpoint.
+  const existing = inFlight.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const promise = performRequest<T>(path, init)
+    .then((value) => {
+      if (ttl > 0) {
+        responseCache.set(key, { value, expiresAt: Date.now() + ttl });
+      }
+      return value;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+
+  inFlight.set(key, promise);
+  return promise;
 }

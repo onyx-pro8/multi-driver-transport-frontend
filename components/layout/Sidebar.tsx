@@ -5,26 +5,43 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Boxes,
-  LayoutDashboard,
+  Inbox,
   Map,
+  Package,
   Route,
   Settings,
   Shapes,
+  Truck,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import type { UserRole } from "@/types/auth";
 import { UserMenu } from "./UserMenu";
 
-const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, disabled: false },
-  { label: "Driver Zones", href: "/driver-zones", icon: Shapes, disabled: false },
-  { label: "H3 Cells", href: "/h3-cells", icon: Boxes, disabled: false },
-  { label: "Routes", href: "/routes", icon: Route, disabled: false },
-  { label: "Map View", href: "/map-view", icon: Map, disabled: false },
-  { label: "Settings", href: "/settings", icon: Settings, disabled: false },
+interface NavItem {
+  label: string;
+  href: string;
+  icon: typeof Shapes;
+  roles: UserRole[];
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { label: "Driver Zones", href: "/driver-zones", icon: Shapes, roles: ["driver", "admin"] },
+  { label: "Orders", href: "/orders", icon: Package, roles: ["sender", "receiver", "admin"] },
+  { label: "Receivers", href: "/receivers", icon: Inbox, roles: ["sender", "admin"] },
+  { label: "Drivers", href: "/drivers", icon: Truck, roles: ["sender", "receiver", "admin"] },
+  { label: "Map View", href: "/map-view", icon: Map, roles: ["driver", "sender", "receiver", "admin"] },
+  { label: "H3 Cells", href: "/h3-cells", icon: Boxes, roles: ["driver", "sender", "admin"] },
+  { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "admin"] },
+  { label: "Settings", href: "/settings", icon: Settings, roles: ["driver", "sender", "receiver", "admin"] },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const role = user?.role;
+
+  const items = NAV_ITEMS.filter((i) => (role ? i.roles.includes(role) : false));
 
   return (
     <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-sidebar sticky top-0 h-screen">
@@ -32,16 +49,15 @@ export function Sidebar() {
         <Image src="/logo.png" alt="Multi-Driver Transport" width={40} height={40} className="rounded-lg" />
         <div>
           <p className="text-sm font-semibold text-foreground leading-tight">Multi-Driver</p>
-          <p className="text-xs text-muted-foreground">Transport</p>
+          <p className="text-xs text-muted-foreground capitalize">{role ?? "Transport"}</p>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) => {
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {items.map((item) => {
           const Icon = item.icon;
           const active =
-            pathname === item.href ||
-            (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
+            pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
@@ -59,17 +75,6 @@ export function Sidebar() {
           );
         })}
       </nav>
-
-      {/* <div className="mx-4 mb-4 rounded-2xl border border-border bg-card p-4 shadow-card">
-        <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-          <span>Milestone Progress</span>
-          <span className="font-semibold text-primary">1/7</span>
-        </div>
-        <div className="h-2 rounded-full bg-muted overflow-hidden">
-          <div className="h-full w-[14%] rounded-full bg-primary" />
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">H3 Conversion &amp; Driver Zones</p>
-      </div> */}
 
       <UserMenu compact />
     </aside>

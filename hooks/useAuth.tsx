@@ -18,7 +18,7 @@ import {
   register as apiRegister,
 } from "@/lib/auth";
 import { getAccessToken, getRefreshToken, getStoredUser, setStoredUser } from "@/lib/token";
-import type { LoginRequest, RegisterRequest, User } from "@/types/auth";
+import type { LoginRequest, RegisterRequest, User, UserRole } from "@/types/auth";
 
 interface AuthContextValue {
   user: User | null;
@@ -31,6 +31,22 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+/** Pick a sensible landing page for each role. */
+export function defaultRouteForRole(role: UserRole | undefined): string {
+  switch (role) {
+    case "driver":
+      return "/driver-zones";
+    case "sender":
+      return "/orders";
+    case "receiver":
+      return "/orders";
+    case "admin":
+      return "/driver-zones";
+    default:
+      return "/orders";
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -68,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await apiLogin(payload);
       persistAuthSession(response);
       setUser(response.user);
-      router.replace("/dashboard");
+      router.replace(defaultRouteForRole(response.user.role));
     },
     [router]
   );
@@ -78,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await apiRegister(payload);
       persistAuthSession(response);
       setUser(response.user);
-      router.replace("/dashboard");
+      router.replace(defaultRouteForRole(response.user.role));
     },
     [router]
   );
@@ -86,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     await apiLogout();
     setUser(null);
-    router.replace("/login");
+    router.replace("/");
   }, [router]);
 
   const value = useMemo<AuthContextValue>(

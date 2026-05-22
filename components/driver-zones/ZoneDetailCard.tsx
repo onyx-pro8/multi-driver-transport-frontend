@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { ConvertH3Response, DriverZone } from "@/types";
 
 const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
@@ -53,8 +53,27 @@ export function ZoneDetailCard({
             <p className="text-xs text-muted-foreground">Total Cells</p>
             <p className="font-medium">{zone.cell_count}</p>
           </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Transport mode</p>
+            <p className="font-medium capitalize">{zone.transport_mode}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Rate / cost</p>
+            <p className="font-medium">
+              {formatCurrency(Number(zone.rate_cost), zone.currency)}
+              <span className="ml-1 text-xs text-muted-foreground">({zone.currency})</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Available</p>
+            <p className="font-medium">{zone.available ? "Yes" : "No"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Trust payment forwarder</p>
+            <p className="font-medium">{zone.trust_payment_forwarder ? "Yes" : "No"}</p>
+          </div>
           <div className="col-span-2">
-            <p className="text-xs text-muted-foreground">Created At</p>
+            <p className="text-xs text-muted-foreground">Created at</p>
             <p className="font-medium">{formatDate(zone.created_at)}</p>
           </div>
         </div>
