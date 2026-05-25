@@ -2,7 +2,7 @@
 
 import { cellToBoundary, cellToLatLng, latLngToCell, isValidCell } from "h3-js";
 import L from "leaflet";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -47,8 +47,33 @@ function FitBoundsOnce({
     if (positions.length === 0) return;
     if (lastKey.current === sessionKey) return;
     lastKey.current = sessionKey;
-    const bounds = L.latLngBounds(positions);
-    map.fitBounds(bounds.pad(0.25), { animate: true, maxZoom: 13 });
+
+    let cancelled = false;
+
+    const fit = () => {
+      if (cancelled) return;
+      const container = map.getContainer?.();
+      if (!container?.isConnected) return;
+      try {
+        const bounds = L.latLngBounds(positions);
+        // No animation — animated fitBounds can fire _onZoomTransitionEnd after
+        // the map instance is torn down (e.g. session remount), causing
+        // "_leaflet_pos" errors on undefined panes.
+        map.fitBounds(bounds.pad(0.25), { animate: false, maxZoom: 13 });
+      } catch {
+        /* map already removed */
+      }
+    };
+
+    if (map.whenReady) {
+      map.whenReady(fit);
+    } else {
+      fit();
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [map, positions, sessionKey]);
   return null;
 }
@@ -106,6 +131,11 @@ const dropoffIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+export interface H3MapAdjacentPair {
+  from_cell: string;
+  to_cell: string;
+}
+
 export interface H3MapViewProps {
   height?: string | number;
   resolution: number;
@@ -120,6 +150,18 @@ export interface H3MapViewProps {
   drawEnabled?: boolean;
   center?: [number, number];
   zoom?: number;
+  /**
+   * Milestone 2: H3 cells that should be highlighted as a transfer/overlap
+   * region on top of the saved-zone layer. Rendered in a distinct amber
+   * tone so they read against any zone palette colour.
+   */
+  transferCells?: string[];
+  /**
+   * Milestone 2: pairs of H3 cells that touch across a zone boundary.
+   * Each pair is drawn as a short line between the two cell centers so
+   * the adjacency handoff point is visually obvious.
+   */
+  adjacentPairs?: H3MapAdjacentPair[];
 }
 
 export function H3MapView({
@@ -136,6 +178,8 @@ export function H3MapView({
   onBoundaryChange,
   center,
   zoom = 10,
+  transferCells = [],
+  adjacentPairs = [],
 }: H3MapViewProps) {
   const defaultCenter = useMemo<[number, number]>(() => {
     if (center) return center;
@@ -147,8 +191,9 @@ export function H3MapView({
     return [37.7749, -122.4194];
   }, [center, conversion, selectedCells]);
 
-  // Bounds are computed from "anchor" geometry only — pickup/drop-off cells and
-  // saved zones — so the map doesn't reflow every time the user picks a cell.
+  // Bounds are computed from "anchor" geometry only — pickup/drop-off cells,
+  // saved zones, and (M2) transfer cells + adjacency pairs — so the map
+  // doesn't reflow every time the user picks a cell.
   const fitPositions = useMemo(() => {
     const pts: [number, number][] = [];
     savedZones.forEach((z) => {
@@ -160,20 +205,68 @@ export function H3MapView({
       pts.push([conversion.pickup_center.lat, conversion.pickup_center.lng]);
       pts.push([conversion.dropoff_center.lat, conversion.dropoff_center.lng]);
     }
+    transferCells.forEach((c) => {
+      if (isValidCell(c)) pts.push(...boundaryPositions(c));
+    });
+    adjacentPairs.forEach((p) => {
+      if (isValidCell(p.from_cell)) pts.push(cellToLatLng(p.from_cell) as [number, number]);
+      if (isValidCell(p.to_cell)) pts.push(cellToLatLng(p.to_cell) as [number, number]);
+    });
     if (pts.length === 0 && selectedCells.length > 0) {
       const first = selectedCells.find((c) => isValidCell(c));
       if (first) pts.push(...boundaryPositions(first));
     }
     return pts;
-  }, [savedZones, conversion, selectedCells]);
+  }, [savedZones, conversion, selectedCells, transferCells, adjacentPairs]);
 
   const sessionKey = useMemo(
     () =>
-      `${conversion?.pickup_h3 ?? "_"}:${conversion?.dropoff_h3 ?? "_"}|${savedZones.map((z) => z.id).join(",")}`,
-    [conversion?.pickup_h3, conversion?.dropoff_h3, savedZones]
+      [
+        conversion?.pickup_h3 ?? "_",
+        conversion?.dropoff_h3 ?? "_",
+        savedZones.map((z) => z.id).join(","),
+        transferCells.slice(0, 8).join(","),
+        adjacentPairs
+          .slice(0, 8)
+          .map((p) => `${p.from_cell}->${p.to_cell}`)
+          .join(","),
+      ].join("|"),
+    [
+      conversion?.pickup_h3,
+      conversion?.dropoff_h3,
+      savedZones,
+      transferCells,
+      adjacentPairs,
+    ]
   );
 
   const selectedSet = useMemo(() => new Set(selectedCells), [selectedCells]);
+
+  // Leaflet must only run in the browser. We mount H3MapLeaflet with a
+  // per-instance stable key so each H3MapView gets ONE Leaflet map for its
+  // lifetime. Prop-driven session changes (zones, transfer cells, etc.) just
+  // re-render the children; FitBoundsOnce re-fits the viewport via sessionKey.
+  // Remounting Leaflet on every session change races React Strict Mode's
+  // double-invoke and trips "Map container is already initialized".
+  const [clientReady, setClientReady] = useState(false);
+  const [stableMapId] = useState(
+    () => `h3map-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  );
+
+  useEffect(() => {
+    setClientReady(true);
+  }, []);
+
+  if (!clientReady) {
+    return (
+      <div
+        style={{ height }}
+        className="relative w-full rounded-xl overflow-hidden bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground"
+      >
+        Loading map…
+      </div>
+    );
+  }
 
   return (
     <div style={{ height }} className="relative w-full rounded-xl overflow-hidden">
@@ -209,6 +302,77 @@ export function H3MapView({
         </div>
       )}
 
+      <H3MapLeaflet
+        key={stableMapId}
+        defaultCenter={defaultCenter}
+        zoom={zoom}
+        interactive={interactive}
+        drawEnabled={drawEnabled}
+        geofenceEnabled={geofenceEnabled}
+        boundary={boundary}
+        onBoundaryChange={onBoundaryChange}
+        resolution={resolution}
+        selectedCells={selectedCells}
+        selectedSet={selectedSet}
+        onCellsChange={onCellsChange}
+        savedZones={savedZones}
+        conversion={conversion}
+        transferCells={transferCells}
+        adjacentPairs={adjacentPairs}
+        fitPositions={fitPositions}
+        sessionKey={sessionKey}
+      />
+    </div>
+  );
+}
+
+type H3MapLeafletProps = {
+  defaultCenter: [number, number];
+  zoom: number;
+  interactive: boolean;
+  drawEnabled: boolean;
+  geofenceEnabled: boolean;
+  boundary: { lat: number; lng: number }[];
+  onBoundaryChange?: (pts: { lat: number; lng: number }[]) => void;
+  resolution: number;
+  selectedCells: string[];
+  selectedSet: Set<string>;
+  onCellsChange?: (cells: string[]) => void;
+  savedZones: DriverZone[];
+  conversion: ConvertH3Response | null;
+  transferCells: string[];
+  adjacentPairs: H3MapAdjacentPair[];
+  fitPositions: [number, number][];
+  sessionKey: string;
+};
+
+/**
+ * Leaflet map instance. Parent (`H3MapView`) gives this component a stable
+ * per-instance key so the underlying `L.Map` is created exactly once per
+ * H3MapView lifetime. Session changes (zones, transfer cells, conversion)
+ * only re-render the polygon/marker children; `FitBoundsOnce` re-fits the
+ * viewport off the same sessionKey without tearing the map down.
+ */
+function H3MapLeaflet({
+  defaultCenter,
+  zoom,
+  interactive,
+  drawEnabled,
+  geofenceEnabled,
+  boundary,
+  onBoundaryChange,
+  resolution,
+  selectedCells,
+  selectedSet,
+  onCellsChange,
+  savedZones,
+  conversion,
+  transferCells,
+  adjacentPairs,
+  fitPositions,
+  sessionKey,
+}: H3MapLeafletProps) {
+  return (
       <MapContainer
         center={defaultCenter}
         zoom={zoom}
@@ -354,6 +518,60 @@ export function H3MapView({
           });
         })}
 
+        {/*
+          Milestone 2 — Transfer cells (the H3 cells shared between two
+          zones, i.e. the overlap region). Rendered in a strong amber so
+          they pop against either zone palette colour.
+        */}
+        {transferCells.map((cell) => {
+          if (!isValidCell(cell)) return null;
+          return (
+            <Polygon
+              key={`transfer-${cell}`}
+              positions={boundaryPositions(cell)}
+              pathOptions={{
+                color: "#b45309",
+                weight: 2.5,
+                fillColor: "#f59e0b",
+                fillOpacity: 0.55,
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -4]} opacity={1} sticky>
+                <span className="text-xs">Transfer cell · {cell}</span>
+              </Tooltip>
+            </Polygon>
+          );
+        })}
+
+        {/*
+          Milestone 2 — Adjacent cell pairs. Render a short polyline
+          between the two cell centers + a small dot at each end so the
+          "handoff point" is unmistakable even on dense maps.
+        */}
+        {adjacentPairs.map((pair, idx) => {
+          if (!isValidCell(pair.from_cell) || !isValidCell(pair.to_cell)) return null;
+          const from = cellToLatLng(pair.from_cell) as [number, number];
+          const to = cellToLatLng(pair.to_cell) as [number, number];
+          return (
+            <Polyline
+              key={`adj-${idx}-${pair.from_cell}-${pair.to_cell}`}
+              positions={[from, to]}
+              pathOptions={{
+                color: "#b45309",
+                weight: 3,
+                opacity: 0.9,
+                dashArray: "4 4",
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -4]} opacity={1} sticky>
+                <span className="text-xs">
+                  Adjacent · {pair.from_cell} ↔ {pair.to_cell}
+                </span>
+              </Tooltip>
+            </Polyline>
+          );
+        })}
+
         {selectedCells.map((cell) => {
           if (!isValidCell(cell)) return null;
           return (
@@ -392,6 +610,5 @@ export function H3MapView({
           </>
         )}
       </MapContainer>
-    </div>
   );
 }

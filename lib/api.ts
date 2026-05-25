@@ -1,4 +1,9 @@
 import { apiRequest, invalidateCache } from "./http";
+import type {
+  RecalculateConnectionsResponse,
+  ZoneConnection,
+  ZoneConnectionFilters,
+} from "@/types";
 
 /**
  * Short TTLs are intentional: long enough to make page navigation instant when
@@ -121,3 +126,54 @@ export function unfollowDriver(driverId: number): Promise<{ followed: boolean; t
 
 /** Re-exported so pages can manually bust the cache after a side effect. */
 export { invalidateCache };
+
+// --------------------------------------------------------------------------
+// Milestone 2 — Zone connections
+// --------------------------------------------------------------------------
+
+function buildZoneConnectionQuery(filters?: ZoneConnectionFilters): string {
+  if (!filters) return "";
+  const params = new URLSearchParams();
+  if (filters.connection_type) params.set("connection_type", filters.connection_type);
+  if (filters.transport_id) params.set("transport_id", String(filters.transport_id));
+  if (filters.zone_id) params.set("zone_id", String(filters.zone_id));
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export function listZoneConnections(
+  filters?: ZoneConnectionFilters
+): Promise<ZoneConnection[]> {
+  const qs = buildZoneConnectionQuery(filters);
+  return apiRequest<ZoneConnection[]>(`/api/zone-connections${qs}`, {
+    cacheOptions: { ttlMs: TTL_LIST },
+  });
+}
+
+export function getZoneConnection(id: number): Promise<ZoneConnection> {
+  return apiRequest<ZoneConnection>(`/api/zone-connections/${id}`, {
+    cacheOptions: { ttlMs: TTL_LIST },
+  });
+}
+
+export function listConnectionsForZone(zoneId: number): Promise<ZoneConnection[]> {
+  return apiRequest<ZoneConnection[]>(`/api/zones/${zoneId}/connections`, {
+    cacheOptions: { ttlMs: TTL_LIST },
+  });
+}
+
+export function recalculateZoneConnections(): Promise<RecalculateConnectionsResponse> {
+  return apiRequest<RecalculateConnectionsResponse>("/api/zone-connections/recalculate", {
+    method: "POST",
+  });
+}
+
+export function detectConnectionsForZone(
+  zoneId: number
+): Promise<RecalculateConnectionsResponse & { zone_id: number }> {
+  return apiRequest(`/api/zones/${zoneId}/detect-connections`, { method: "POST" });
+}
+
+export function deactivateZoneConnection(id: number): Promise<void> {
+  return apiRequest<void>(`/api/zone-connections/${id}`, { method: "DELETE" });
+}

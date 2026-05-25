@@ -152,3 +152,60 @@ export interface DriverSummary {
   followed: boolean;
   transport_modes: string[];
 }
+
+// --------------------------------------------------------------------------
+// Milestone 2 — zone overlap / adjacency graph
+// --------------------------------------------------------------------------
+
+export type ConnectionType = "overlap" | "adjacent";
+
+export interface AdjacentCellPair {
+  from_cell: string;
+  to_cell: string;
+}
+
+export interface ZoneConnectionParty {
+  id: number;
+  zone_name: string;
+  transport_id: number;
+  transport_name: string;
+  transport_method: string | null;
+  cell_count: number;
+  resolution: number;
+  /**
+   * Full H3 cell list, embedded in the connection so the map can render
+   * both zones even when the viewer (e.g. a driver) doesn't have access
+   * to the other party's zone through the regular zones API.
+   */
+  cells: string[];
+}
+
+export interface ZoneConnection {
+  id: number;
+  connection_type: ConnectionType;
+  transfer_cells: string[];
+  adjacent_cell_pairs: AdjacentCellPair[];
+  transport_method_a: string | null;
+  transport_method_b: string | null;
+  transfer_cell_count: number;
+  adjacent_pair_count: number;
+  zone_a: ZoneConnectionParty;
+  zone_b: ZoneConnectionParty;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecalculateConnectionsResponse {
+  message: string;
+  total_connections: number;
+  overlap_connections: number;
+  adjacent_connections: number;
+  zones_compared: number;
+}
+
+export interface ZoneConnectionFilters {
+  connection_type?: ConnectionType;
+  transport_id?: number;
+  zone_id?: number;
+}
