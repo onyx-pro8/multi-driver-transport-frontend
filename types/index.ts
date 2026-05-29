@@ -209,3 +209,68 @@ export interface ZoneConnectionFilters {
   transport_id?: number;
   zone_id?: number;
 }
+
+// --------------------------------------------------------------------------
+// Milestone 2 — Order draft zone-connection preview
+//
+// Computed from raw pickup/drop-off coordinates *before* an order is saved,
+// so the sender can decide whether handoff is even feasible.
+// --------------------------------------------------------------------------
+
+export type OrderConnectionStatus =
+  | "connected"
+  | "not_connected"
+  | "no_pickup_zone"
+  | "no_destination_zone";
+
+export interface OrderDraftZoneSummary {
+  zone_id: number;
+  zone_name: string;
+  transport_id: number;
+  transport_name: string;
+  transport_method: string | null;
+  cell_count: number;
+  resolution: number;
+  /**
+   * H3 cells of the zone, sampled by the backend for map rendering. Use
+   * `cell_count` for the true total — `cells.length` may be smaller.
+   * Optional when the API omits cells (older backend) or a zone has none.
+   */
+  cells?: string[];
+  is_pickup: boolean;
+  is_destination: boolean;
+  /** BFS depth from pickup. 0 for pickup zones; null if unreached. */
+  depth: number | null;
+}
+
+export interface OrderDraftConnection {
+  id: number;
+  from_zone_id: number;
+  to_zone_id: number;
+  connection_type: ConnectionType;
+  transfer_cells: string[];
+  adjacent_cell_pairs: AdjacentCellPair[];
+  used_in_preview: boolean;
+}
+
+export interface OrderDraftChain {
+  zone_ids: number[];
+  connection_ids: number[];
+  hops: number;
+}
+
+export interface OrderDraftPreview {
+  source: { name: string; address: string; lat: number; lng: number; h3: string };
+  destination: { name: string; address: string; lat: number; lng: number; h3: string };
+  preview_resolution: number;
+  max_depth: number;
+  pickup_zones: OrderDraftZoneSummary[];
+  destination_zones: OrderDraftZoneSummary[];
+  connected_zones: OrderDraftZoneSummary[];
+  connections: OrderDraftConnection[];
+  transfer_cells: string[];
+  is_connected_to_destination: boolean;
+  status: OrderConnectionStatus;
+  message: string;
+  possible_connection_chains: OrderDraftChain[];
+}

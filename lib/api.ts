@@ -1,5 +1,6 @@
 import { apiRequest, invalidateCache } from "./http";
 import type {
+  OrderDraftPreview,
   RecalculateConnectionsResponse,
   ZoneConnection,
   ZoneConnectionFilters,
@@ -176,4 +177,33 @@ export function detectConnectionsForZone(
 
 export function deactivateZoneConnection(id: number): Promise<void> {
   return apiRequest<void>(`/api/zone-connections/${id}`, { method: "DELETE" });
+}
+
+// --------------------------------------------------------------------------
+// Milestone 2 — Order draft preview (pre-submit)
+// --------------------------------------------------------------------------
+
+export interface DraftZonePreviewRequest {
+  source_lat: number;
+  source_lng: number;
+  destination_lat: number;
+  destination_lng: number;
+  source_name?: string;
+  source_address?: string;
+  destination_name?: string;
+  destination_address?: string;
+  max_depth?: number;
+}
+
+/**
+ * Preview the zone-connection network for a draft order (pickup -> drop-off)
+ * before it is actually submitted. Senders only.
+ */
+export function previewZoneConnectionsByCoordinates(
+  payload: DraftZonePreviewRequest
+): Promise<OrderDraftPreview> {
+  return apiRequest<OrderDraftPreview>("/api/orders/zone-connection-preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

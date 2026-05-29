@@ -1,15 +1,20 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { GitBranch, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { AddressSearchInput } from "@/components/ui/AddressSearchInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { createOrder, listReceivers } from "@/lib/api";
-import type { Order, ReceiverSummary } from "@/types";
+import {
+  createOrder,
+  listReceivers,
+  previewZoneConnectionsByCoordinates,
+} from "@/lib/api";
+import type { Order, OrderDraftPreview, ReceiverSummary } from "@/types";
+import { OrderDraftZonePreview } from "@/components/orders/OrderDraftZonePreview";
 
 interface Props {
   onCreated: (order: Order) => void;
@@ -25,6 +30,9 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
   const [senderLng, setSenderLng] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [zonePreview, setZonePreview] = useState<OrderDraftPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const profilePrimed = useRef(false);
 
   // Prime defaults from the user's profile once it loads — but don't clobber
@@ -49,6 +57,56 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
     () => receivers.find((r) => String(r.id) === receiverId) ?? null,
     [receivers, receiverId]
   );
+
+  // Coords valid enough to ask the backend for a preview.
+  const draftReady = useMemo(() => {
+    const sLat = Number(senderLat);
+    const sLng = Number(senderLng);
+    const dLat = selectedReceiver?.lat ?? null;
+    const dLng = selectedReceiver?.lng ?? null;
+    return (
+      Number.isFinite(sLat) &&
+      Number.isFinite(sLng) &&
+      dLat != null &&
+      dLng != null &&
+      Number.isFinite(dLat) &&
+      Number.isFinite(dLng)
+    );
+  }, [senderLat, senderLng, selectedReceiver]);
+
+  // Stale previews are confusing — drop them whenever the inputs change so
+  // the user can't accidentally submit relying on a preview from a different
+  // pickup or receiver.
+  useEffect(() => {
+    setZonePreview(null);
+    setPreviewError(null);
+  }, [senderLat, senderLng, receiverId]);
+
+  async function handleSeeConnections() {
+    if (!draftReady || !selectedReceiver) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const preview = await previewZoneConnectionsByCoordinates({
+        source_lat: Number(senderLat),
+        source_lng: Number(senderLng),
+        destination_lat: Number(selectedReceiver.lat),
+        destination_lng: Number(selectedReceiver.lng),
+        source_address: senderAddress.trim() || undefined,
+        source_name: user?.full_name,
+        destination_name: selectedReceiver.full_name,
+        destination_address: selectedReceiver.address || undefined,
+      });
+      setZonePreview(preview);
+    } catch (err) {
+      setZonePreview(null);
+      setPreviewError(
+        err instanceof Error ? err.message : "Failed to load zone connection preview"
+      );
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -173,7 +231,39 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
         />
       </div>
 
-      <div className="flex justify-end">
+      {/*
+        Milestone 2 — pre-submit zone connection preview. Senders can click
+        "See zone connections" once they have a pickup coord and a receiver
+        with valid coords, and the API answers "are pickup and drop-off
+        linked through any transport zone graph?". Strictly preview-only.
+      */}
+      {(zonePreview || previewLoading || previewError) && (
+        <OrderDraftZonePreview
+          preview={zonePreview}
+          loading={previewLoading}
+          error={previewError}
+        />
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleSeeConnections}
+          disabled={!draftReady || previewLoading}
+          title={
+            draftReady
+              ? "Preview which transport zones link this pickup to the receiver"
+              : "Pick a receiver with coords and a pickup location first"
+          }
+        >
+          {previewLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <GitBranch className="h-4 w-4" />
+          )}
+          See zone connections
+        </Button>
         <Button type="submit" disabled={submitting}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Submit order
