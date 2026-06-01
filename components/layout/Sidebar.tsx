@@ -9,6 +9,7 @@ import {
   Home,
   Inbox,
   Map,
+  Network,
   Package,
   Route,
   Settings,
@@ -55,6 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Map View", href: "/map-view", icon: Map, roles: ["driver", "sender", "receiver", "admin"] },
       { label: "Zone Connections", href: "/zone-connections", icon: Workflow, roles: ["driver", "sender", "admin"] },
+      { label: "Driver-Zone Graph", href: "/driver-zone-graph", icon: Network, roles: ["driver", "sender", "admin"] },
       { label: "H3 Cells", href: "/h3-cells", icon: Boxes, roles: ["driver", "sender", "admin"] },
       { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "admin"] },
     ],

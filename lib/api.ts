@@ -1,9 +1,18 @@
 import { apiRequest, invalidateCache } from "./http";
 import type {
+  DriverZoneGraph,
+  GraphComponent,
+  GraphComponentDetail,
+  GraphNode,
+  GraphNodeDegree,
+  GraphSummary,
   OrderDraftPreview,
+  RebuildGraphOptions,
+  RebuildGraphResponse,
   RecalculateConnectionsResponse,
   ZoneConnection,
   ZoneConnectionFilters,
+  ZoneNeighborhood,
 } from "@/types";
 
 /**
@@ -206,4 +215,64 @@ export function previewZoneConnectionsByCoordinates(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// --------------------------------------------------------------------------
+// Milestone 3 — Driver-Zone Graph
+// --------------------------------------------------------------------------
+
+const GRAPH_TTL = 10_000;
+
+export function getDriverZoneGraph(): Promise<DriverZoneGraph> {
+  return apiRequest<DriverZoneGraph>("/api/driver-zone-graph", {
+    cacheOptions: { ttlMs: GRAPH_TTL },
+  });
+}
+
+export function rebuildDriverZoneGraph(
+  options: RebuildGraphOptions = {}
+): Promise<RebuildGraphResponse> {
+  return apiRequest<RebuildGraphResponse>("/api/driver-zone-graph/rebuild", {
+    method: "POST",
+    body: JSON.stringify(options),
+  });
+}
+
+export function getDriverZoneGraphSummary(): Promise<GraphSummary> {
+  return apiRequest<GraphSummary>("/api/driver-zone-graph/summary", {
+    cacheOptions: { ttlMs: GRAPH_TTL },
+  });
+}
+
+export function listGraphComponents(): Promise<GraphComponent[]> {
+  return apiRequest<GraphComponent[]>("/api/driver-zone-graph/components", {
+    cacheOptions: { ttlMs: GRAPH_TTL },
+  });
+}
+
+export function getGraphComponent(componentId: string): Promise<GraphComponentDetail> {
+  return apiRequest<GraphComponentDetail>(
+    `/api/driver-zone-graph/components/${encodeURIComponent(componentId)}`,
+    { cacheOptions: { ttlMs: GRAPH_TTL } }
+  );
+}
+
+export function listIsolatedGraphZones(): Promise<GraphNode[]> {
+  return apiRequest<GraphNode[]>("/api/driver-zone-graph/isolated-zones", {
+    cacheOptions: { ttlMs: GRAPH_TTL },
+  });
+}
+
+export function getZoneNeighborhood(zoneId: number): Promise<ZoneNeighborhood> {
+  return apiRequest<ZoneNeighborhood>(
+    `/api/driver-zone-graph/zones/${zoneId}/neighborhood`,
+    { cacheOptions: { ttlMs: GRAPH_TTL } }
+  );
+}
+
+export function getZoneNodeDegree(zoneId: number): Promise<GraphNodeDegree> {
+  return apiRequest<GraphNodeDegree>(
+    `/api/driver-zone-graph/zones/${zoneId}/degree`,
+    { cacheOptions: { ttlMs: GRAPH_TTL } }
+  );
 }

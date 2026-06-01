@@ -160,3 +160,34 @@ body {
   border-left-color: var(--card);
   border-right-color: var(--card);
 }
+
+/*
+ * Wider, taller tooltip variant used by the Driver-Zone Graph map view.
+ * Default Leaflet tooltips cap at 260px which forces long transport
+ * names + zone names + cell counts to wrap into a narrow column that's
+ * hard to read. The graph variant gets a generous min/max width and a
+ * little extra padding so the multi-line content breathes.
+ */
+.leaflet-tooltip.graph-tooltip {
+  min-width: 200px;
+  max-width: 360px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.leaflet-tooltip.graph-tooltip .graph-tooltip-title {
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 2px;
+}
+
+.leaflet-tooltip.graph-tooltip .graph-tooltip-sub {
+  color: var(--foreground);
+}
+
+.leaflet-tooltip.graph-tooltip .graph-tooltip-meta {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-top: 4px;
+}
