@@ -47,7 +47,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Driver Zones", href: "/driver-zones", icon: Shapes, roles: ["driver", "admin"] },
       { label: "Orders", href: "/orders", icon: Package, roles: ["sender", "receiver", "admin"] },
-      { label: "Drivers", href: "/drivers", icon: Truck, roles: ["sender", "receiver", "admin"] },
+      { label: "Transporters", href: "/drivers", icon: Truck, roles: ["sender", "receiver", "admin"] },
       { label: "Receivers", href: "/receivers", icon: Inbox, roles: ["sender", "admin"] },
     ],
   },
@@ -55,9 +55,9 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "Geospatial",
     items: [
       { label: "Map View", href: "/map-view", icon: Map, roles: ["driver", "sender", "receiver", "admin"] },
-      { label: "Zone Connections", href: "/zone-connections", icon: Workflow, roles: ["driver", "sender", "admin"] },
-      { label: "Driver-Zone Graph", href: "/driver-zone-graph", icon: Network, roles: ["driver", "sender", "admin"] },
-      { label: "H3 Cells", href: "/h3-cells", icon: Boxes, roles: ["driver", "sender", "admin"] },
+      { label: "Zone Connections", href: "/zone-connections", icon: Workflow, roles: ["driver", "admin"] },
+      { label: "Driver-Zone Graph", href: "/driver-zone-graph", icon: Network, roles: ["driver", "admin"] },
+      { label: "Cells", href: "/h3-cells", icon: Boxes, roles: ["driver", "admin"] },
       { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "admin"] },
     ],
   },

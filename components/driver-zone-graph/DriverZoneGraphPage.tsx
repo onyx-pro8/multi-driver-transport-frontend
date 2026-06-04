@@ -291,24 +291,52 @@ export function DriverZoneGraphPage() {
       )}
 
       <Card>
-        <CardContent className="p-4 flex items-start gap-3">
-          <div className="h-9 w-9 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-            <Network className="h-5 w-5" />
+        <CardContent className="p-4 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="h-9 w-9 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Network className="h-5 w-5" />
+            </div>
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-foreground">Transport network graph</p>
+              <p className="text-muted-foreground">
+                See how transport zones connect so shipments can move from one
+                transporter to another. Each zone is a{" "}
+                <span className="text-foreground font-medium">node</span>; each
+                handoff possibility between two zones is a{" "}
+                <span className="text-foreground font-medium">line</span>.
+              </p>
+            </div>
           </div>
-          <div className="space-y-1 text-sm">
-            <p className="font-medium text-foreground">
-              Milestone 3 — Driver-Zone Graph
-            </p>
-            <p className="text-muted-foreground">
-              The system converts existing transport zones into graph
-              <span className="text-foreground font-medium"> nodes </span>
-              and converts overlap / adjacency relationships into graph
-              <span className="text-foreground font-medium"> edges</span>. This
-              lets us see how the transport network is connected, which zones
-              are isolated, and which groups of zones form connected components.
-              This graph will be used in later milestones for pickup-to-destination
-              route generation.
-            </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-sm border-t border-border pt-4">
+            <LegendItem
+              swatch={
+                <span className="inline-block h-3 w-3 rounded-full bg-blue-500 ring-2 ring-white dark:ring-card" />
+              }
+              title="Nodes (dots)"
+              description="One transport zone — where a transporter can pick up or hand off a package."
+            />
+            <LegendItem
+              swatch={
+                <span className="inline-block h-1 w-8 rounded bg-amber-600" />
+              }
+              title="Solid amber lines"
+              description="Overlap — two zones share the same geographic cells. Transfer happens inside the shared area."
+            />
+            <LegendItem
+              swatch={
+                <span className="inline-block h-0 w-8 border-t-2 border-dashed border-sky-600" />
+              }
+              title="Dashed blue lines"
+              description="Adjacent — zones touch at a border. Handoff happens at the boundary between cells."
+            />
+            <LegendItem
+              swatch={
+                <span className="inline-block h-3 w-3 rounded-sm bg-amber-500/60 border border-amber-600" />
+              }
+              title="Amber hexagons"
+              description="Overlap regions on the map — cells covered by more than one zone."
+            />
           </div>
         </CardContent>
       </Card>
@@ -718,6 +746,26 @@ export function DriverZoneGraphPage() {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function LegendItem({
+  swatch,
+  title,
+  description,
+}: {
+  swatch: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border p-3 space-y-1.5">
+      <div className="flex items-center gap-2">
+        {swatch}
+        <p className="font-medium text-foreground text-xs">{title}</p>
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+    </div>
+  );
+}
 
 function StatTile({
   icon,

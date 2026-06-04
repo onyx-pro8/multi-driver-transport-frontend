@@ -15,8 +15,8 @@ type Role = "driver" | "sender" | "receiver";
 const ROLE_OPTIONS: { value: Role; label: string; description: string; icon: typeof Truck }[] = [
   {
     value: "driver",
-    label: "Driver",
-    description: "I deliver shipments and define coverage zones.",
+    label: "Transporter",
+    description: "I transport shipments and define coverage zones.",
     icon: Truck,
   },
   {

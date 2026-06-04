@@ -39,7 +39,7 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
       icon: Map,
     },
     {
-      label: "Browse H3 cells",
+      label: "Browse cells",
       description: "Inspect cell coverage across zones",
       href: "/h3-cells",
       icon: Boxes,
@@ -59,8 +59,8 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
       icon: Send,
     },
     {
-      label: "Find drivers",
-      description: "Browse drivers near a location",
+      label: "Find transporters",
+      description: "Browse transporters near a location",
       href: "/drivers",
       icon: Truck,
     },
@@ -72,7 +72,7 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
     },
     {
       label: "Open map view",
-      description: "See driver coverage on a map",
+      description: "See transporter coverage on a map",
       href: "/map-view",
       icon: Map,
     },
@@ -85,14 +85,14 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
       icon: Package,
     },
     {
-      label: "Drivers in your area",
-      description: "Browse and follow drivers nearby",
+      label: "Transporters in your area",
+      description: "Browse and follow transporters nearby",
       href: "/drivers",
       icon: Truck,
     },
     {
       label: "Open map view",
-      description: "See driver coverage on a map",
+      description: "See transporter coverage on a map",
       href: "/map-view",
       icon: Map,
     },
@@ -117,8 +117,8 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
       icon: Package,
     },
     {
-      label: "Drivers directory",
-      description: "All registered drivers",
+      label: "Transporters directory",
+      description: "All registered transporters",
       href: "/drivers",
       icon: Truck,
     },

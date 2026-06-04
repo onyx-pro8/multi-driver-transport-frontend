@@ -69,7 +69,7 @@ export function DriversPage() {
       setDrivers(driverList);
       setZones(zoneList);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load drivers");
+      setError(err instanceof Error ? err.message : "Failed to load transporters");
     } finally {
       setLoading(false);
     }
@@ -156,7 +156,7 @@ export function DriversPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <MapPin className="h-4 w-4" /> Find drivers near a location
+            <MapPin className="h-4 w-4" /> Find transporters near a location
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -258,14 +258,20 @@ export function DriversPage() {
                   onChange={(e) => setRadiusEnabled(e.target.checked)}
                   disabled={!activeCenter}
                 />
-                Only show drivers within {radiusKm} km
+                Only show transporters within {radiusKm} km
               </label>
+              <p className="mt-2 text-xs text-muted-foreground">
+                This is an optional display filter, not a system limit. Uncheck the box above
+                to browse all transporters worldwide. For long-distance shipments (e.g. sender
+                and receiver on different continents), search near the pickup address, the
+                delivery address, or turn the filter off.
+              </p>
             </div>
           </div>
 
           {activeCenter && (
             <p className="text-xs text-muted-foreground">
-              {withDistanceCount} of {drivers.length} drivers have zones with known coordinates ·
+              {withDistanceCount} of {drivers.length} transporters have zones with known coordinates ·
               showing {filtered.length} {canFilterByRadius ? `within ${radiusKm} km` : "(no radius filter)"}.
             </p>
           )}
@@ -275,7 +281,7 @@ export function DriversPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Truck className="h-4 w-4" /> Drivers ({filtered.length})
+            <Truck className="h-4 w-4" /> Transporters ({filtered.length})
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -294,8 +300,8 @@ export function DriversPage() {
           ) : filtered.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
               {canFilterByRadius
-                ? `No drivers within ${radiusKm} km. Try increasing the radius or turning the filter off.`
-                : "No drivers match your search."}
+                ? `No transporters within ${radiusKm} km. Try increasing the radius or turning the filter off.`
+                : "No transporters match your search."}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -4,7 +4,7 @@ import { ZoneConnectionsPage } from "@/components/zone-connections/ZoneConnectio
 
 export default function Page() {
   return (
-    <RoleGuard allow={["driver", "sender", "admin"]}>
+    <RoleGuard allow={["driver", "admin"]}>
       <DashboardShell
         title="Zone Overlap & Adjacency Detection"
         subtitle="Detect where transport participant zones overlap or touch, creating possible handoff/transfer points."

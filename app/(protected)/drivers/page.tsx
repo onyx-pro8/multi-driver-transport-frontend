@@ -6,8 +6,8 @@ export default function Page() {
   return (
     <RoleGuard allow={["sender", "receiver", "admin"]}>
       <DashboardShell
-        title="Drivers"
-        subtitle="Browse drivers, see their trustworthiness, and follow the ones you trust."
+        title="Transporters"
+        subtitle="Browse transporters, see their trustworthiness, and follow the ones you trust."
       >
         <DriversPage />
       </DashboardShell>

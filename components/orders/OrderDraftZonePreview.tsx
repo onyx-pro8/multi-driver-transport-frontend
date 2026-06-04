@@ -239,8 +239,16 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
         <div className="grid grid-cols-2 gap-3 text-xs">
-          <Metric label="Pickup H3 (res 8)" value={preview.source.h3} mono />
-          <Metric label="Drop-off H3 (res 8)" value={preview.destination.h3} mono />
+          <Metric
+            label={`Pickup H3 (res ${preview.preview_resolution})`}
+            value={preview.source.h3}
+            mono
+          />
+          <Metric
+            label={`Drop-off H3 (res ${preview.preview_resolution})`}
+            value={preview.destination.h3}
+            mono
+          />
           <Metric label="Pickup zones" value={preview.pickup_zones.length} />
           <Metric label="Destination zones" value={preview.destination_zones.length} />
           <Metric

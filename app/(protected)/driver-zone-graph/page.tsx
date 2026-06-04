@@ -4,7 +4,7 @@ import { DriverZoneGraphPage } from "@/components/driver-zone-graph/DriverZoneGr
 
 export default function Page() {
   return (
-    <RoleGuard allow={["driver", "sender", "admin"]}>
+    <RoleGuard allow={["driver", "admin"]}>
       <DashboardShell
         title="Driver-Zone Graph Builder"
         subtitle="View how transport participant zones connect as a network through overlap and adjacency."

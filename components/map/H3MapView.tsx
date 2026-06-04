@@ -417,6 +417,16 @@ export interface H3MapViewProps {
    */
   showZoneTooltips?: boolean;
   /**
+   * Controls which geometry drives the auto-fit viewport.
+   *  - "all" (default): union of saved zones + pickup/drop-off +
+   *    transfer/adjacency handoff cells.
+   *  - "endpoints": only the pickup/drop-off cells and the transfer /
+   *    adjacency handoff cells. Use this on the order preview so a large
+   *    covering zone (hundreds of cells across a wide area) doesn't zoom the
+   *    map out until the pickup/drop-off hexagons become invisible dots.
+   */
+  fitFocus?: "all" | "endpoints";
+  /**
    * When provided, the map's viewport fits to this single zone's geometry
    * (its boundary, falling back to a sampled set of its H3-cell centers)
    * instead of the union of every saved zone. Changing the focused zone's
@@ -455,6 +465,7 @@ export function H3MapView({
   showZoneTooltips,
   focusZone = null,
   geofenceAppendOnMapClick = true,
+  fitFocus = "all",
 }: H3MapViewProps) {
   const userLocation = useMapDefaultLocation();
   const zoneTooltips = showZoneTooltips ?? interactive;
@@ -505,12 +516,17 @@ export function H3MapView({
     if (focusPositions && focusPositions.length > 0) return focusPositions;
     const pts: [number, number][] = [];
     // Use cell centers (1 point per cell) for fit-bounds so the viewport
-    // covers every saved cell without paying the full 6-vertex cost.
-    savedZones.forEach((z) => {
-      z.h3_cells.forEach((c) => {
-        if (isValidCell(c)) pts.push(cellCenter(c));
+    // covers every saved cell without paying the full 6-vertex cost. When
+    // `fitFocus === "endpoints"` we deliberately skip the (potentially huge)
+    // saved-zone footprint so the viewport snaps to the pickup → drop-off
+    // corridor instead of zooming out to the whole covering zone.
+    if (fitFocus !== "endpoints") {
+      savedZones.forEach((z) => {
+        z.h3_cells.forEach((c) => {
+          if (isValidCell(c)) pts.push(cellCenter(c));
+        });
       });
-    });
+    }
     if (conversion) {
       pts.push([conversion.pickup_center.lat, conversion.pickup_center.lng]);
       pts.push([conversion.dropoff_center.lat, conversion.dropoff_center.lng]);
@@ -530,7 +546,7 @@ export function H3MapView({
       if (first) pts.push(cellCenter(first));
     }
     return pts;
-  }, [focusPositions, savedZones, conversion, selectedCells, transferCells, adjacentPairs, geofenceEnabled, boundary]);
+  }, [focusPositions, savedZones, conversion, selectedCells, transferCells, adjacentPairs, geofenceEnabled, boundary, fitFocus]);
 
   const sessionKey = useMemo(
     () =>

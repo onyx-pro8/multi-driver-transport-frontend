@@ -30,8 +30,8 @@ export function H3CellsPage() {
 
   return (
     <DashboardShell
-      title="H3 Cells"
-      subtitle="Inventory of H3 hexagon cells across all driver zones."
+      title="Cells"
+      subtitle="Inventory of hexagon cells across all transport zones."
     >
       <div className="px-6 pb-8">
         {error && (

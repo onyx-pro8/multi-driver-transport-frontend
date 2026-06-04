@@ -107,6 +107,93 @@ export function OrderGraphPanel({ order }: Props) {
         </div>
       )}
 
+      {/* Graph canvas — placed early so Map / Abstract toggle is visible without scrolling */}
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            {viewMode === "map" ? (
+              <MapIcon className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <Share2 className="h-4 w-4 text-muted-foreground" />
+            )}
+            {viewMode === "map" ? "Map view" : "Abstract view"}
+          </CardTitle>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+            <div
+              className="inline-flex rounded-lg border-2 border-primary/20 bg-muted/40 p-0.5 shrink-0 shadow-sm"
+              role="tablist"
+              aria-label="Graph visualization mode"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "map"}
+                onClick={() => setViewMode("map")}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors",
+                  viewMode === "map"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
+              >
+                <MapIcon className="h-3.5 w-3.5" /> Map view
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "abstract"}
+                onClick={() => setViewMode("abstract")}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors",
+                  viewMode === "abstract"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
+              >
+                <Share2 className="h-3.5 w-3.5" /> Abstract view
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => handleBuild(false)} disabled={building || loading} size="sm">
+                {building ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
+                {building ? "Building…" : "Build Graph"}
+              </Button>
+              {canRecalc && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBuild(true)}
+                  disabled={building || loading}
+                  title="Recalculate Milestone 2 zone connections, then rebuild this order's graph"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Recalculate & Rebuild
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {loading && !graph ? (
+            <div className="h-[480px] rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
+              Loading graph…
+            </div>
+          ) : !graph ? (
+            <div className="py-12 text-center text-sm text-muted-foreground space-y-2">
+              <p>No graph yet — click Build Graph above.</p>
+              <p className="text-xs">
+                Switch between <span className="font-medium text-foreground">Map view</span> and{" "}
+                <span className="font-medium text-foreground">Abstract view</span> using the tabs above.
+              </p>
+            </div>
+          ) : viewMode === "map" ? (
+            <OrderGraphMap graph={graph} height={480} />
+          ) : (
+            <OrderGraphCanvas graph={graph} height={480} />
+          )}
+        </CardContent>
+      </Card>
+
       {/* Connection status */}
       {graph && (
         <div
@@ -157,74 +244,6 @@ export function OrderGraphPanel({ order }: Props) {
         <Stat label="Reachable Transporters" value={graph?.summary.reachable_transporters ?? 0} />
         <Stat label="Unreachable Transporters" value={graph?.summary.unreachable_transporters ?? 0} />
       </section>
-
-      {/* Action bar */}
-      <Card>
-        <CardContent className="p-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => handleBuild(false)} disabled={building || loading}>
-              {building ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
-              {building ? "Building…" : "Build Graph"}
-            </Button>
-            {canRecalc && (
-              <Button
-                variant="outline"
-                onClick={() => handleBuild(true)}
-                disabled={building || loading}
-                title="Recalculate Milestone 2 zone connections, then rebuild this order's graph"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Recalculate Connections & Rebuild
-              </Button>
-            )}
-          </div>
-          <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
-            <button
-              type="button"
-              onClick={() => setViewMode("map")}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                viewMode === "map"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <MapIcon className="h-3.5 w-3.5" /> Map view
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("abstract")}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                viewMode === "abstract"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Share2 className="h-3.5 w-3.5" /> Abstract view
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Graph canvas */}
-      <Card>
-        <CardContent className="p-4">
-          {loading && !graph ? (
-            <div className="h-[480px] rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
-              Loading graph…
-            </div>
-          ) : !graph ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No graph yet — click Build Graph.
-            </div>
-          ) : viewMode === "map" ? (
-            <OrderGraphMap graph={graph} height={480} />
-          ) : (
-            <OrderGraphCanvas graph={graph} height={480} />
-          )}
-        </CardContent>
-      </Card>
 
       {/* Unreachable / isolated transporters */}
       <Card>

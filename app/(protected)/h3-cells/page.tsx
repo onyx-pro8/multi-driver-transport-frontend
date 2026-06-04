@@ -3,7 +3,7 @@ import { H3CellsPage } from "@/components/dashboard/H3CellsPage";
 
 export default function Page() {
   return (
-    <RoleGuard allow={["driver", "sender", "admin"]}>
+    <RoleGuard allow={["driver", "admin"]}>
       <H3CellsPage />
     </RoleGuard>
   );

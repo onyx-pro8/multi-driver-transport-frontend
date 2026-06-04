@@ -12,11 +12,11 @@ const ROLE_META: Record<
   { label: string; tone: string; icon: LucideIcon; tooltip: string }
 > = {
   driver: {
-    label: "Driver",
+    label: "Transporter",
     tone:
       "bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20",
     icon: Truck,
-    tooltip: "Operates driver zones and accepts deliveries.",
+    tooltip: "Operates transport zones and moves shipments.",
   },
   sender: {
     label: "Sender",

@@ -228,7 +228,7 @@ function SenderDashboard() {
           accent="green"
         />
         <StatCard
-          label="Drivers"
+          label="Transporters"
           value={data.available_drivers}
           icon={Truck}
           hint={`${data.available_receivers} receivers available`}
@@ -535,7 +535,7 @@ function AdminDashboard() {
     <>
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Drivers"
+          label="Transporters"
           value={data.drivers.length}
           icon={Truck}
           hint={`${data.zones.length} zones (${availableZones} available)`}
