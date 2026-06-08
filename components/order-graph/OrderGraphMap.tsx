@@ -6,12 +6,20 @@ import { useEffect, useMemo, useRef } from "react";
 import {
   CircleMarker,
   MapContainer,
+  Marker,
   Polygon,
   Polyline,
   TileLayer,
   Tooltip,
   useMap,
 } from "react-leaflet";
+import {
+  connectionMode,
+  isHubMode,
+  makeHubIcon,
+  normalizeTransportMode,
+  TRANSPORT_MODE_META,
+} from "@/lib/transportMode";
 import type { OrderGraph, OrderGraphNode } from "@/types";
 import { isOrderGraphZoneNode } from "@/types";
 
@@ -60,6 +68,14 @@ function coordOf(node: OrderGraphNode): [number, number] | null {
   return [node.primary_coordinate.lat, node.primary_coordinate.lng];
 }
 
+/** Transport mode of a node — endpoints (sender/receiver) are treated as land. */
+function nodeMode(node: OrderGraphNode | undefined) {
+  if (node && isOrderGraphZoneNode(node)) {
+    return normalizeTransportMode(node.transport_method);
+  }
+  return "land" as const;
+}
+
 export function OrderGraphMap({ graph, height = 480 }: Props) {
   const nodeById = useMemo(() => {
     const m = new Map<string, OrderGraphNode>();
@@ -70,6 +86,8 @@ export function OrderGraphMap({ graph, height = 480 }: Props) {
   const zonePolygons = useMemo(() => {
     return graph.nodes
       .filter(isOrderGraphZoneNode)
+      // Air/sea zones are hub/port points only — no coverage hexes.
+      .filter((node) => !isHubMode(normalizeTransportMode(node.transport_method)))
       .flatMap((node) => {
         const base = node.is_isolated
           ? UNREACHABLE
@@ -96,11 +114,19 @@ export function OrderGraphMap({ graph, height = 480 }: Props) {
         (e.edge_type === "overlap" || e.edge_type === "adjacent") &&
         e.recommended_transfer_cell
       ) {
+        // A recommended transfer cell only makes sense for land handoffs.
+        // For air/sea the transfer happens at the hub/port endpoint, not at
+        // a map cell, so don't paint a misleading cell.
+        const link = connectionMode(
+          nodeMode(nodeById.get(e.source)),
+          nodeMode(nodeById.get(e.target))
+        );
+        if (isHubMode(link)) continue;
         set.add(e.recommended_transfer_cell);
       }
     }
     return Array.from(set);
-  }, [graph.edges]);
+  }, [graph.edges, nodeById]);
 
   const fitPositions = useMemo<[number, number][]>(() => {
     const pts: [number, number][] = [];
@@ -108,11 +134,15 @@ export function OrderGraphMap({ graph, height = 480 }: Props) {
       const c = coordOf(node);
       if (c) pts.push(c);
       if (isOrderGraphZoneNode(node)) {
-        for (const cell of node.cells.slice(0, 4)) {
-          try {
-            for (const [lat, lng] of cellToBoundary(cell)) pts.push([lat, lng]);
-          } catch {
-            /* skip */
+        if (isHubMode(normalizeTransportMode(node.transport_method))) {
+          if (c) pts.push(c);
+        } else {
+          for (const cell of node.cells.slice(0, 4)) {
+            try {
+              for (const [lat, lng] of cellToBoundary(cell)) pts.push([lat, lng]);
+            } catch {
+              /* skip */
+            }
           }
         }
       }
@@ -195,14 +225,26 @@ export function OrderGraphMap({ graph, height = 480 }: Props) {
           const ca = coordOf(a);
           const cb = coordOf(b);
           if (!ca || !cb) return null;
-          const color =
-            edge.edge_type === "pickup_coverage"
-              ? PICKUP
-              : edge.edge_type === "delivery_coverage"
-              ? DELIVERY
-              : edge.edge_type === "overlap"
-              ? OVERLAP_EDGE
-              : ADJACENT_EDGE;
+          // Zone↔zone handoffs (overlap/adjacent) involving an air/sea leg
+          // are drawn as a flight path / shipping lane; coverage edges keep
+          // their pickup/delivery colours.
+          const isZoneLink = edge.edge_type === "overlap" || edge.edge_type === "adjacent";
+          const link = isZoneLink ? connectionMode(nodeMode(a), nodeMode(b)) : "land";
+          const isHubLink = isHubMode(link);
+          const color = isHubLink
+            ? TRANSPORT_MODE_META[link].color
+            : edge.edge_type === "pickup_coverage"
+            ? PICKUP
+            : edge.edge_type === "delivery_coverage"
+            ? DELIVERY
+            : edge.edge_type === "overlap"
+            ? OVERLAP_EDGE
+            : ADJACENT_EDGE;
+          const dashArray = isHubLink
+            ? TRANSPORT_MODE_META[link].dashArray
+            : edge.edge_type === "adjacent"
+            ? "10 6"
+            : undefined;
           return (
             <Polyline
               key={edge.id}
@@ -211,12 +253,42 @@ export function OrderGraphMap({ graph, height = 480 }: Props) {
                 color,
                 weight: 3,
                 opacity: 0.85,
-                dashArray: edge.edge_type === "adjacent" ? "10 6" : undefined,
+                dashArray,
                 lineCap: "round",
               }}
             />
           );
         })}
+
+        {/* Air/sea transporter zones rendered as hub/port markers. */}
+        {graph.nodes
+          .filter(isOrderGraphZoneNode)
+          .filter((node) => isHubMode(normalizeTransportMode(node.transport_method)))
+          .map((node) => {
+            const c = coordOf(node);
+            if (!c) return null;
+            const mode = normalizeTransportMode(node.transport_method);
+            return (
+              <Marker
+                key={`hub-${node.id}`}
+                position={c}
+                icon={makeHubIcon(mode, { muted: !node.is_reachable })}
+              >
+                <Tooltip direction="top" offset={[0, -6]}>
+                  <div>
+                    <div className="graph-tooltip-title">{node.transport_name}</div>
+                    <div className="graph-tooltip-sub">{node.zone_name}</div>
+                    <div className="graph-tooltip-meta">
+                      {TRANSPORT_MODE_META[mode].label} {TRANSPORT_MODE_META[mode].hubNoun}
+                      {node.is_reachable ? " · reachable" : " · unreachable"}
+                      {node.is_pickup_covering ? " · pickup" : ""}
+                      {node.is_delivery_covering ? " · delivery" : ""}
+                    </div>
+                  </div>
+                </Tooltip>
+              </Marker>
+            );
+          })}
 
         {/* Sender / Receiver markers. */}
         {graph.nodes
@@ -260,6 +332,12 @@ export function OrderGraphMap({ graph, height = 480 }: Props) {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-4 rounded-sm" style={{ background: "rgba(245,158,11,0.55)", border: `1px solid ${RECOMMENDED}` }} /> Recommended cell
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-0 w-5" style={{ borderTop: `3px dashed ${TRANSPORT_MODE_META.air.color}` }} /> Flight path
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-0 w-5" style={{ borderTop: `3px dotted ${TRANSPORT_MODE_META.sea.color}` }} /> Shipping lane
         </span>
       </div>
     </div>

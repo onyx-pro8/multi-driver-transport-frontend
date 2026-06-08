@@ -115,8 +115,17 @@ async function performRequest<T>(path: string, init: RequestOptions | undefined)
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     try {
-      const body = await res.json();
+      const body = (await res.json()) as {
+        error?: string;
+        details?: Record<string, string[] | undefined>;
+      };
       if (body?.error) message = body.error;
+      if (body?.details && typeof body.details === "object") {
+        const parts = Object.entries(body.details).flatMap(([field, msgs]) =>
+          Array.isArray(msgs) ? msgs.map((m) => `${field}: ${m}`) : []
+        );
+        if (parts.length > 0) message = `${message} — ${parts.join("; ")}`;
+      }
     } catch {
       /* ignore */
     }

@@ -1,10 +1,19 @@
 "use client";
 
+import { cellToLatLng, isValidCell } from "h3-js";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listDriverZones } from "@/lib/api";
 import type { DriverZone } from "@/types";
+
+interface CellRow {
+  cell: string;
+  zones: string[];
+  resolution: number;
+  lat: number | null;
+  lng: number | null;
+}
 
 export function H3CellsPage() {
   const [zones, setZones] = useState<DriverZone[]>([]);
@@ -16,13 +25,24 @@ export function H3CellsPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
-  const cells = useMemo(() => {
-    const map = new Map<string, { cell: string; zones: string[]; resolution: number }>();
+  const cells = useMemo<CellRow[]>(() => {
+    const map = new Map<string, CellRow>();
     for (const zone of zones) {
       for (const cell of zone.h3_cells) {
         const existing = map.get(cell);
-        if (existing) existing.zones.push(zone.zone_name);
-        else map.set(cell, { cell, zones: [zone.zone_name], resolution: zone.resolution });
+        if (existing) {
+          existing.zones.push(zone.zone_name);
+        } else {
+          // Each cell maps to a single geographic center point. We surface
+          // that lat/lng instead of the raw H3 index because the index is
+          // meaningless to end users.
+          let lat: number | null = null;
+          let lng: number | null = null;
+          if (isValidCell(cell)) {
+            [lat, lng] = cellToLatLng(cell);
+          }
+          map.set(cell, { cell, zones: [zone.zone_name], resolution: zone.resolution, lat, lng });
+        }
       }
     }
     return Array.from(map.values());
@@ -31,7 +51,7 @@ export function H3CellsPage() {
   return (
     <DashboardShell
       title="Cells"
-      subtitle="Inventory of hexagon cells across all transport zones."
+      subtitle="Inventory of coverage cells across all transport zones, shown as map coordinates."
     >
       <div className="px-6 pb-8">
         {error && (
@@ -49,7 +69,8 @@ export function H3CellsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="py-2 pr-4 font-medium">H3 Index</th>
+                  <th className="py-2 pr-4 font-medium">Latitude</th>
+                  <th className="py-2 pr-4 font-medium">Longitude</th>
                   <th className="py-2 pr-4 font-medium">Resolution</th>
                   <th className="py-2 font-medium">Zones</th>
                 </tr>
@@ -57,14 +78,19 @@ export function H3CellsPage() {
               <tbody>
                 {cells.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="py-8 text-center text-muted-foreground">
-                      No H3 cells yet. Create driver zones to populate this view.
+                    <td colSpan={4} className="py-8 text-center text-muted-foreground">
+                      No cells yet. Create transport zones to populate this view.
                     </td>
                   </tr>
                 )}
                 {cells.map((row) => (
                   <tr key={row.cell} className="border-b border-border/70 last:border-0">
-                    <td className="py-2 pr-4 font-mono text-xs">{row.cell}</td>
+                    <td className="py-2 pr-4 font-mono text-xs">
+                      {row.lat != null ? row.lat.toFixed(6) : "—"}
+                    </td>
+                    <td className="py-2 pr-4 font-mono text-xs">
+                      {row.lng != null ? row.lng.toFixed(6) : "—"}
+                    </td>
                     <td className="py-2 pr-4">{row.resolution}</td>
                     <td className="py-2 text-muted-foreground">{row.zones.join(", ")}</td>
                   </tr>

@@ -14,6 +14,7 @@ import {
   Loader2,
   Map as MapIcon,
   Network,
+  Plane,
   RefreshCw,
   Share2,
   Shapes,
@@ -32,6 +33,7 @@ import {
   rebuildDriverZoneGraph,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { formatCellCoords } from "@/lib/geo";
 import type {
   ConnectionType,
   DriverZoneGraph,
@@ -75,6 +77,12 @@ const CONNECTION_BADGE: Record<
     className:
       "bg-sky-500/15 text-sky-700 dark:text-sky-200 border border-sky-500/30",
     icon: Link2,
+  },
+  hub: {
+    label: "Hub transfer",
+    className:
+      "bg-violet-500/15 text-violet-700 dark:text-violet-200 border border-violet-500/30",
+    icon: Plane,
   },
 };
 
@@ -441,6 +449,7 @@ export function DriverZoneGraphPage() {
               <option value="all">All edges</option>
               <option value="overlap">Overlap</option>
               <option value="adjacent">Adjacent</option>
+              <option value="hub">Hub transfer</option>
             </Select>
             <label className="inline-flex items-center gap-2 text-sm text-foreground">
               <Checkbox
@@ -878,6 +887,36 @@ function NodeDetailCard({ node, degree, onClose }: NodeDetailCardProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {(node.transport_method === "air" || node.transport_method === "sea") &&
+          node.departure_hub &&
+          node.arrival_hub && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3">
+                <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-1">
+                  Departure {node.transport_method === "air" ? "airport" : "port"}
+                </p>
+                <p className="font-medium">{node.departure_hub.name || "—"}</p>
+                <p className="text-xs text-muted-foreground font-mono mt-1">
+                  {node.departure_hub.lat.toFixed(4)}, {node.departure_hub.lng.toFixed(4)}
+                </p>
+                {node.departure_time && (
+                  <p className="text-xs text-muted-foreground mt-1">Departs {node.departure_time}</p>
+                )}
+              </div>
+              <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
+                <p className="text-xs font-medium text-orange-600 dark:text-orange-400 mb-1">
+                  Arrival {node.transport_method === "air" ? "airport" : "port"}
+                </p>
+                <p className="font-medium">{node.arrival_hub.name || "—"}</p>
+                <p className="text-xs text-muted-foreground font-mono mt-1">
+                  {node.arrival_hub.lat.toFixed(4)}, {node.arrival_hub.lng.toFixed(4)}
+                </p>
+                {node.arrival_time && (
+                  <p className="text-xs text-muted-foreground mt-1">Arrives {node.arrival_time}</p>
+                )}
+              </div>
+            </div>
+          )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
           <Field label="Transport Name" value={node.transport_name} />
           <Field label="Zone Name" value={node.zone_name} />
@@ -1083,7 +1122,7 @@ function CellChipList({ title, cells }: { title: string; cells: string[] }) {
             className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 px-2.5 py-1 text-xs font-mono"
           >
             <Hexagon className="inline-block h-3 w-3 mr-1 align-text-bottom" />
-            {cell}
+            {formatCellCoords(cell)}
           </span>
         ))}
         {cells.length > visible.length && (
@@ -1113,9 +1152,9 @@ function PairChipList({
             key={`${p.from_cell}-${p.to_cell}-${idx}`}
             className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 px-2.5 py-1 text-xs font-mono"
           >
-            {p.from_cell}
+            {formatCellCoords(p.from_cell)}
             <ArrowRight className="h-3 w-3" />
-            {p.to_cell}
+            {formatCellCoords(p.to_cell)}
           </span>
         ))}
         {pairs.length > visible.length && (

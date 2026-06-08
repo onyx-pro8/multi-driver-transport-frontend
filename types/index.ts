@@ -42,6 +42,13 @@ export interface LatLngPoint {
   lng: number;
 }
 
+/** A named terminal hub (airport or port) with coordinates. */
+export interface HubTerminal {
+  name: string;
+  lat: number;
+  lng: number;
+}
+
 export interface DriverZone {
   id: number;
   owner_user_id: number;
@@ -52,6 +59,12 @@ export interface DriverZone {
   cell_count: number;
   transport_mode: TransportMode;
   boundary: LatLngPoint[] | null;
+  /** Departure terminal — set for air/sea routes. */
+  departure_hub: HubTerminal | null;
+  /** Arrival terminal — set for air/sea routes. */
+  arrival_hub: HubTerminal | null;
+  departure_time: string | null;
+  arrival_time: string | null;
   rate_cost: number;
   currency: Currency;
   available: boolean;
@@ -68,6 +81,10 @@ export interface CreateDriverZoneRequest {
   h3_cells?: string[];
   transport_mode: TransportMode;
   boundary?: LatLngPoint[] | null;
+  departure_hub?: HubTerminal | null;
+  arrival_hub?: HubTerminal | null;
+  departure_time?: string | null;
+  arrival_time?: string | null;
   rate_cost: number;
   currency: Currency;
   available: boolean;
@@ -81,6 +98,10 @@ export interface UpdateDriverZoneRequest {
   h3_cells?: string[];
   transport_mode?: TransportMode;
   boundary?: LatLngPoint[] | null;
+  departure_hub?: HubTerminal | null;
+  arrival_hub?: HubTerminal | null;
+  departure_time?: string | null;
+  arrival_time?: string | null;
   rate_cost?: number;
   currency?: Currency;
   available?: boolean;
@@ -174,7 +195,10 @@ export interface DriverSummary {
 // Milestone 2 — zone overlap / adjacency graph
 // --------------------------------------------------------------------------
 
-export type ConnectionType = "overlap" | "adjacent";
+export type ConnectionType = "overlap" | "adjacent" | "hub";
+
+/** Which terminal of an air/sea zone anchors a hub connection. */
+export type HubRole = "departure" | "arrival";
 
 export interface AdjacentCellPair {
   from_cell: string;
@@ -195,6 +219,11 @@ export interface ZoneConnectionParty {
    * to the other party's zone through the regular zones API.
    */
   cells: string[];
+  /** Air/sea route terminals. Null for land zones. */
+  departure_hub: HubTerminal | null;
+  arrival_hub: HubTerminal | null;
+  departure_time: string | null;
+  arrival_time: string | null;
 }
 
 export interface ZoneConnection {
@@ -205,6 +234,9 @@ export interface ZoneConnection {
   recommended_transfer_cell: string | null;
   transport_method_a: string | null;
   transport_method_b: string | null;
+  /** For `hub` connections: which terminal anchors each air/sea side. */
+  hub_role_a?: HubRole | null;
+  hub_role_b?: HubRole | null;
   transfer_cell_count: number;
   adjacent_pair_count: number;
   zone_a: ZoneConnectionParty;
@@ -219,6 +251,7 @@ export interface RecalculateConnectionsResponse {
   total_connections: number;
   overlap_connections: number;
   adjacent_connections: number;
+  hub_connections?: number;
   zones_compared: number;
 }
 
@@ -259,6 +292,11 @@ export interface OrderDraftZoneSummary {
   is_destination: boolean;
   /** BFS depth from pickup. 0 for pickup zones; null if unreached. */
   depth: number | null;
+  /** Air/sea route terminals (null for land zones) so the map can draw the leg. */
+  departure_hub?: HubTerminal | null;
+  arrival_hub?: HubTerminal | null;
+  departure_time?: string | null;
+  arrival_time?: string | null;
 }
 
 export interface OrderDraftConnection {
@@ -269,6 +307,9 @@ export interface OrderDraftConnection {
   transfer_cells: string[];
   adjacent_cell_pairs: AdjacentCellPair[];
   used_in_preview: boolean;
+  /** For `hub` connections: which terminal anchors each air/sea side. */
+  hub_role_a?: HubRole | null;
+  hub_role_b?: HubRole | null;
 }
 
 export interface OrderDraftChain {
@@ -327,6 +368,11 @@ export interface GraphNode {
   /** Full H3 cell list for the zone — used by the on-map graph view. */
   cells: string[];
   primary_coordinate: GraphPrimaryCoordinate | null;
+  /** Air/sea route terminals. Null for land zones. */
+  departure_hub: HubTerminal | null;
+  arrival_hub: HubTerminal | null;
+  departure_time: string | null;
+  arrival_time: string | null;
   is_isolated: boolean;
   component_id: string;
 }
@@ -364,6 +410,7 @@ export interface GraphSummary {
   isolated_zones: number;
   overlap_edges: number;
   adjacent_edges: number;
+  hub_edges?: number;
   total_components_including_isolated: number;
   generated_at: string;
 }

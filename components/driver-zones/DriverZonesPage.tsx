@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { Shapes, Star, Users } from "lucide-react";
 import { AddDriverZoneForm } from "@/components/driver-zones/AddDriverZoneForm";
@@ -12,10 +11,7 @@ import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
 import { deleteDriverZone, listDriverZones } from "@/lib/api";
 import type { DriverZone } from "@/types";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => <div className="h-[360px] rounded-xl bg-muted animate-pulse" />,
-});
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 export function DriverZonesPage() {
   const { user } = useAuth();

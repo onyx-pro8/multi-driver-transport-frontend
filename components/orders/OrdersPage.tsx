@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, MapPin, Package, Send, Truck, X } from "lucide-react";
 import { latLngToCell } from "h3-js";
@@ -9,21 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listDriverZones, listOrders, updateOrderStatus } from "@/lib/api";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
+import { formatCellCoords } from "@/lib/geo";
 import { cn, formatDate } from "@/lib/utils";
 import type { ConvertH3Response, DriverZone, Order } from "@/types";
 import { NewOrderForm } from "./NewOrderForm";
 import { OrderGraphPanel } from "@/components/order-graph/OrderGraphPanel";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[320px] rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
-      Loading map…
-    </div>
-  ),
-});
-
-
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 const STATUS_BADGE: Record<Order["status"], string> = {
   submitted:
@@ -393,7 +384,7 @@ function OrderRouteCard({ order, trip, zones, zonesLoading, onClose }: OrderRout
             )}
             {order.pickup_h3 && (
               <p className="mt-1 text-xs text-muted-foreground font-mono break-all">
-                pickup_h3: {order.pickup_h3}
+                pickup cell: {formatCellCoords(order.pickup_h3)}
               </p>
             )}
           </div>
@@ -412,7 +403,7 @@ function OrderRouteCard({ order, trip, zones, zonesLoading, onClose }: OrderRout
             )}
             {order.delivery_h3 && (
               <p className="mt-1 text-xs text-muted-foreground font-mono break-all">
-                delivery_h3: {order.delivery_h3}
+                delivery cell: {formatCellCoords(order.delivery_h3)}
               </p>
             )}
           </div>

@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,6 +12,7 @@ import {
   Link2,
   Loader2,
   Map as MapIcon,
+  Plane,
   RefreshCw,
   Shapes,
   Workflow,
@@ -30,7 +30,14 @@ import {
   recalculateZoneConnections,
 } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
+import { formatCellCoords } from "@/lib/geo";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
+import {
+  connectionMode,
+  isHubMode,
+  normalizeTransportMode,
+  TRANSPORT_MODE_META,
+} from "@/lib/transportMode";
 import type {
   ConnectionType,
   DriverZone,
@@ -39,14 +46,7 @@ import type {
   ZoneConnectionParty,
 } from "@/types";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[420px] rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
-      Loading map…
-    </div>
-  ),
-});
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 type Filter = "all" | ConnectionType;
 
@@ -62,6 +62,12 @@ const CONNECTION_BADGE: Record<ConnectionType, { label: string; className: strin
     className:
       "bg-sky-500/15 text-sky-700 dark:text-sky-200 border border-sky-500/30",
     icon: Link2,
+  },
+  hub: {
+    label: "Hub transfer",
+    className:
+      "bg-violet-500/15 text-violet-700 dark:text-violet-200 border border-violet-500/30",
+    icon: Plane,
   },
 };
 
@@ -129,7 +135,9 @@ export function ZoneConnectionsPage() {
       showMessage(
         `Recalculated. ${result.total_connections} connection${
           result.total_connections === 1 ? "" : "s"
-        } detected · ${result.overlap_connections} overlap · ${result.adjacent_connections} adjacent across ${result.zones_compared} zones.`
+        } detected · ${result.overlap_connections} overlap · ${result.adjacent_connections} adjacent · ${
+          result.hub_connections ?? 0
+        } hub across ${result.zones_compared} zones.`
       );
       await refresh();
     } catch (err) {
@@ -181,12 +189,14 @@ export function ZoneConnectionsPage() {
   const stats = useMemo(() => {
     const overlap = connections.filter((c) => c.connection_type === "overlap").length;
     const adjacent = connections.filter((c) => c.connection_type === "adjacent").length;
+    const hub = connections.filter((c) => c.connection_type === "hub").length;
     const transferCellSet = new Set<string>();
     connections.forEach((c) => c.transfer_cells.forEach((cell) => transferCellSet.add(cell)));
     return {
       total: connections.length,
       overlap,
       adjacent,
+      hub,
       transferCells: transferCellSet.size,
     };
   }, [connections]);
@@ -233,10 +243,11 @@ export function ZoneConnectionsPage() {
       )}
 
       {/* Summary cards */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatTile icon={<Workflow className="h-5 w-5" />} label="Total Connections" value={stats.total} />
         <StatTile icon={<Layers className="h-5 w-5" />} label="Overlap Connections" value={stats.overlap} />
         <StatTile icon={<Link2 className="h-5 w-5" />} label="Adjacent Connections" value={stats.adjacent} />
+        <StatTile icon={<Plane className="h-5 w-5" />} label="Hub Transfers" value={stats.hub} />
         <StatTile icon={<Hexagon className="h-5 w-5" />} label="Transfer Cells Detected" value={stats.transferCells} />
       </section>
 
@@ -273,6 +284,7 @@ export function ZoneConnectionsPage() {
               <option value="all">All types</option>
               <option value="overlap">Overlap</option>
               <option value="adjacent">Adjacent</option>
+              <option value="hub">Hub transfer</option>
             </Select>
             <Input
               placeholder="Search transport or zone…"
@@ -324,6 +336,7 @@ export function ZoneConnectionsPage() {
                   const isSelected = selectedId === c.id;
                   const badge = CONNECTION_BADGE[c.connection_type];
                   const Badge = badge.icon;
+                  const hubLabel = hubAnchorLabel(c);
                   return (
                     <tr
                       key={c.id}
@@ -351,11 +364,16 @@ export function ZoneConnectionsPage() {
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right font-mono">{c.transfer_cell_count}</td>
-                      <td className="py-3 pr-4 font-mono text-xs">
-                        {c.recommended_transfer_cell ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 px-2 py-0.5">
+                      <td className="py-3 pr-4 text-xs">
+                        {hubLabel ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/20 px-2 py-0.5">
+                            <Plane className="h-3 w-3" />
+                            {hubLabel}
+                          </span>
+                        ) : c.recommended_transfer_cell ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 px-2 py-0.5 font-mono">
                             <Hexagon className="h-3 w-3" />
-                            {c.recommended_transfer_cell}
+                            {formatCellCoords(c.recommended_transfer_cell)}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -511,6 +529,22 @@ function ConnectionDetail({
     zonePair.length === 2 &&
     zonePair[0].h3_cells.length > 0 &&
     zonePair[1].h3_cells.length > 0;
+  // Air/sea connections hand off at the hub/port, not at a shared map cell.
+  // Suppress the misleading cell-level transfer/adjacency overlays for them.
+  const linkMode = connectionMode(
+    normalizeTransportMode(connection.transport_method_a),
+    normalizeTransportMode(connection.transport_method_b)
+  );
+  const isHubConnection =
+    connection.connection_type === "hub" || isHubMode(linkMode);
+  const hubRole = connection.hub_role_a ?? connection.hub_role_b;
+  const hubParty = connection.hub_role_a ? connection.zone_a : connection.zone_b;
+  const anchoredHub =
+    hubRole === "departure"
+      ? hubParty.departure_hub
+      : hubRole === "arrival"
+      ? hubParty.arrival_hub
+      : null;
 
   return (
     <Card>
@@ -585,30 +619,40 @@ function ConnectionDetail({
               </span>
             }
           />
-          <Field label="Transfer cells" value={`${connection.transfer_cell_count}`} />
-          <Field
-            label="Recommended transfer cell"
-            value={
-              connection.recommended_transfer_cell ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 px-2 py-0.5 font-mono text-xs">
-                  <Hexagon className="h-3 w-3" />
-                  {connection.recommended_transfer_cell}
-                </span>
-              ) : (
-                "—"
-              )
-            }
-          />
-          <Field
-            label="Adjacent pairs"
-            value={`${connection.adjacent_pair_count}`}
-          />
+          {isHubConnection ? (
+            <Field
+              label="Transfer point"
+              value={
+                anchoredHub
+                  ? `${hubRole === "departure" ? "Departure" : "Arrival"} ${TRANSPORT_MODE_META[linkMode].hubNoun}: ${anchoredHub.name}`
+                  : `${TRANSPORT_MODE_META[linkMode].label} ${TRANSPORT_MODE_META[linkMode].hubNoun} (endpoint)`
+              }
+            />
+          ) : (
+            <>
+              <Field label="Transfer cells" value={`${connection.transfer_cell_count}`} />
+              <Field
+                label="Recommended transfer cell"
+                value={
+                  connection.recommended_transfer_cell ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 px-2 py-0.5 font-mono text-xs">
+                      <Hexagon className="h-3 w-3" />
+                      {formatCellCoords(connection.recommended_transfer_cell)}
+                    </span>
+                  ) : (
+                    "—"
+                  )
+                }
+              />
+              <Field label="Adjacent pairs" value={`${connection.adjacent_pair_count}`} />
+            </>
+          )}
           <Field label="Created" value={formatDate(connection.created_at)} />
           <Field label="Updated" value={formatDate(connection.updated_at)} />
           <Field label="Status" value={connection.is_active ? "Active" : "Inactive"} />
         </div>
 
-        {connection.transfer_cells.length > 0 && (
+        {!isHubConnection && connection.transfer_cells.length > 0 && (
           <CellChipList
             title={
               connection.connection_type === "overlap"
@@ -619,13 +663,13 @@ function ConnectionDetail({
           />
         )}
 
-        {connection.adjacent_cell_pairs.length > 0 && (
+        {!isHubConnection && connection.adjacent_cell_pairs.length > 0 && (
           <PairChipList pairs={connection.adjacent_cell_pairs} />
         )}
 
         {showMap && (
           <>
-            <Legend type={connection.connection_type} />
+            <Legend type={connection.connection_type} linkMode={linkMode} />
             {hasFullZones ? (
               <div className="h-[460px] rounded-xl overflow-hidden border border-border">
                 <H3MapView
@@ -635,17 +679,20 @@ function ConnectionDetail({
                   selectedCells={MAP_EMPTY_CELLS}
                   savedZones={zonePair}
                   /*
-                    For "overlap" connections, paint the shared cells in amber so
-                    the transfer region is obvious on top of the two zone fills.
-                    For "adjacent" connections, the stored transfer_cells are just
-                    representative boundary cells of zone A — rendering them as
-                    amber polygons would visually duplicate the zone fill, so we
-                    rely on the dashed adjacency lines alone instead.
+                    Land connections: for "overlap" paint the shared cells in
+                    amber so the transfer region is obvious; "adjacent" relies
+                    on the dashed adjacency lines alone (its stored transfer_cells
+                    are just representative boundary cells of zone A).
+
+                    Air/sea connections: no cell-level overlay at all — the
+                    handoff is at the hub/port endpoint, not on the map surface.
                   */
                   transferCells={
-                    connection.connection_type === "overlap" ? connection.transfer_cells : []
+                    !isHubConnection && connection.connection_type === "overlap"
+                      ? connection.transfer_cells
+                      : []
                   }
-                  adjacentPairs={connection.adjacent_cell_pairs}
+                  adjacentPairs={isHubConnection ? [] : connection.adjacent_cell_pairs}
                   interactive
                 />
               </div>
@@ -717,7 +764,7 @@ function CellChipList({ title, cells }: { title: string; cells: string[] }) {
             key={cell}
             className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 px-2.5 py-1 text-xs font-mono"
           >
-            {cell}
+            {formatCellCoords(cell)}
           </span>
         ))}
         {cells.length > visible.length && (
@@ -747,9 +794,9 @@ function PairChipList({
             key={`${p.from_cell}-${p.to_cell}-${idx}`}
             className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 px-2.5 py-1 text-xs font-mono"
           >
-            {p.from_cell}
+            {formatCellCoords(p.from_cell)}
             <ArrowRight className="h-3 w-3" />
-            {p.to_cell}
+            {formatCellCoords(p.to_cell)}
           </span>
         ))}
         {pairs.length > visible.length && (
@@ -763,6 +810,16 @@ function PairChipList({
 }
 
 const VALID_TRANSPORT_MODES: readonly TransportMode[] = ["land", "air", "sea"];
+
+function hubAnchorLabel(c: ZoneConnection): string | null {
+  if (c.connection_type !== "hub") return null;
+  const role = c.hub_role_a ?? c.hub_role_b;
+  if (!role) return null;
+  const party = c.hub_role_a ? c.zone_a : c.zone_b;
+  const hub = role === "departure" ? party.departure_hub : party.arrival_hub;
+  if (!hub?.name) return role === "departure" ? "Departure hub" : "Arrival hub";
+  return `${role === "departure" ? "Departure" : "Arrival"}: ${hub.name}`;
+}
 
 /**
  * Build a minimal DriverZone-shaped object from a connection party so the
@@ -783,6 +840,10 @@ function partyToDisplayZone(p: ZoneConnectionParty): DriverZone {
     cell_count: p.cell_count,
     transport_mode,
     boundary: null,
+    departure_hub: p.departure_hub,
+    arrival_hub: p.arrival_hub,
+    departure_time: p.departure_time,
+    arrival_time: p.arrival_time,
     rate_cost: 0,
     currency: "USD",
     available: true,
@@ -793,7 +854,14 @@ function partyToDisplayZone(p: ZoneConnectionParty): DriverZone {
   };
 }
 
-function Legend({ type }: { type: ConnectionType }) {
+function Legend({
+  type,
+  linkMode,
+}: {
+  type: ConnectionType;
+  linkMode: ReturnType<typeof connectionMode>;
+}) {
+  const isHub = isHubMode(linkMode);
   return (
     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
@@ -804,7 +872,16 @@ function Legend({ type }: { type: ConnectionType }) {
         <span className="inline-block h-3 w-5 rounded bg-green-500/30 border border-green-500" />
         Zone B
       </span>
-      {type === "overlap" ? (
+      {isHub ? (
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-3 w-3 rounded-full border-2 border-white"
+            style={{ background: TRANSPORT_MODE_META[linkMode].color }}
+          />
+          {TRANSPORT_MODE_META[linkMode].label} hub/port — transfer at{" "}
+          {TRANSPORT_MODE_META[linkMode].hubNoun}
+        </span>
+      ) : type === "overlap" ? (
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-5 rounded bg-amber-500/40 border border-amber-700" />
           Overlap (shared transfer cell)

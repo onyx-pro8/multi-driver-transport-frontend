@@ -2,21 +2,31 @@
 
 import { cellToBoundary } from "h3-js";
 import L from "leaflet";
-import { useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
+  Marker,
   Polygon,
   Polyline,
   TileLayer,
   Tooltip,
   useMap,
 } from "react-leaflet";
+import {
+  connectionMode,
+  isHubMode,
+  makeHubIcon,
+  makeTerminalIcon,
+  normalizeTransportMode,
+  TRANSPORT_MODE_META,
+} from "@/lib/transportMode";
 import type {
   DriverZoneGraph,
   GraphEdge,
   GraphNode,
 } from "@/types";
+import { SeaRoutePolyline } from "@/components/map/SeaRoutePolyline";
 
 /**
  * Milestone 3 — geographic (on-map) rendering of the driver-zone graph.
@@ -76,6 +86,15 @@ function cellsOf(node: GraphNode): string[] {
   return Array.isArray(raw) ? (raw as string[]) : [];
 }
 
+function nodeMode(node: GraphNode) {
+  return normalizeTransportMode(node.transport_method);
+}
+
+/** Land zones get H3 coverage; air/sea zones are hub/port points only. */
+function isLandNode(node: GraphNode): boolean {
+  return !isHubMode(nodeMode(node));
+}
+
 /**
  * Fit the map to the supplied positions once per `sessionKey`. We avoid
  * re-fitting on every selection change so the user's pan/zoom isn't
@@ -112,6 +131,9 @@ export function GraphMapCanvas({
   onSelectEdge,
   height = 560,
 }: GraphMapCanvasProps) {
+  const [mapInstanceKey] = useState(
+    () => `graphmap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  );
   // Deterministic transport → colour mapping. Ordering by transport_id
   // keeps colours stable across rebuilds / filters.
   const transportColor = useMemo(() => {
@@ -135,6 +157,10 @@ export function GraphMapCanvas({
   const overlapCells = useMemo(() => {
     const owners = new Map<string, number>();
     for (const node of graph.nodes) {
+      // Only land zones contribute hex coverage, so only their shared
+      // cells are meaningful "transfer surface". Air/sea overlaps happen
+      // at the hub/port, never at a map cell.
+      if (!isLandNode(node)) continue;
       for (const cell of cellsOf(node)) {
         owners.set(cell, (owners.get(cell) ?? 0) + 1);
       }
@@ -160,9 +186,17 @@ export function GraphMapCanvas({
   const fitPositions = useMemo<[number, number][]>(() => {
     const pts: [number, number][] = [];
     for (const node of graph.nodes) {
+      // Hub nodes (air/sea): fit to both terminals so the whole route is
+      // visible, not just the departure endpoint.
+      if (!isLandNode(node)) {
+        if (node.departure_hub) pts.push([node.departure_hub.lat, node.departure_hub.lng]);
+        if (node.arrival_hub) pts.push([node.arrival_hub.lat, node.arrival_hub.lng]);
+        if (!node.departure_hub && !node.arrival_hub && node.primary_coordinate) {
+          pts.push([node.primary_coordinate.lat, node.primary_coordinate.lng]);
+        }
+        continue;
+      }
       const cells = cellsOf(node);
-      // Sample at most 6 cells per zone for fit math — that's more than
-      // enough to compute bounds for hundreds of zones cheaply.
       const sample = cells.slice(0, 6);
       for (const cell of sample) {
         try {
@@ -188,6 +222,8 @@ export function GraphMapCanvas({
   // every selection change.
   const zonePolygons = useMemo(() => {
     return graph.nodes.flatMap((node) => {
+      // Air/sea nodes render as a single hub/port marker, not hex coverage.
+      if (!isLandNode(node)) return [];
       const baseColor = node.is_isolated
         ? ISOLATED_COLOR
         : transportColor.get(node.transport_id) ?? ISOLATED_COLOR;
@@ -213,6 +249,7 @@ export function GraphMapCanvas({
 
   return (
     <div
+      key={mapInstanceKey}
       className="relative w-full overflow-hidden rounded-xl border border-border"
       style={{ height }}
     >
@@ -303,15 +340,30 @@ export function GraphMapCanvas({
             selectedEdgeId === edge.id ||
             (selectedNodeId &&
               (edge.source === selectedNodeId || edge.target === selectedNodeId));
+          // Style the connection by the modes it links. Any air/sea leg is
+          // drawn as a flight path / shipping lane (distinct colour + dash)
+          // so it never reads as a travelled ground route.
+          const linkMode = connectionMode(nodeMode(a), nodeMode(b));
+          const isHubLink = isHubMode(linkMode);
+          const lineColor = isHubLink
+            ? TRANSPORT_MODE_META[linkMode].color
+            : isOverlap
+            ? OVERLAP_EDGE_COLOR
+            : ADJACENT_EDGE_COLOR;
+          const lineDash = isHubLink
+            ? TRANSPORT_MODE_META[linkMode].dashArray
+            : isOverlap
+            ? undefined
+            : "10 6";
           return (
             <Polyline
               key={edge.id}
               positions={positions}
               pathOptions={{
-                color: isOverlap ? OVERLAP_EDGE_COLOR : ADJACENT_EDGE_COLOR,
+                color: lineColor,
                 weight: isSelected ? 5 : 3,
                 opacity: isSelected ? 1 : 0.85,
-                dashArray: isOverlap ? undefined : "10 6",
+                dashArray: lineDash,
                 lineCap: "round",
               }}
               eventHandlers={{
@@ -326,7 +378,11 @@ export function GraphMapCanvas({
               >
                 <div>
                   <div className="graph-tooltip-title">
-                    {isOverlap ? "Overlap edge" : "Adjacent edge"}
+                    {isHubLink
+                      ? `${TRANSPORT_MODE_META[linkMode].lineLabel} · transfer at ${TRANSPORT_MODE_META[linkMode].hubNoun}`
+                      : isOverlap
+                      ? "Overlap edge"
+                      : "Adjacent edge"}
                   </div>
                   <div className="graph-tooltip-sub">
                     {a.transport_name} ↔ {b.transport_name}
@@ -347,10 +403,114 @@ export function GraphMapCanvas({
             ? ISOLATED_COLOR
             : transportColor.get(node.transport_id) ?? ISOLATED_COLOR;
           const isSelected = selectedNodeId === node.id;
+          const mode = nodeMode(node);
+          const center: [number, number] = [
+            node.primary_coordinate.lat,
+            node.primary_coordinate.lng,
+          ];
+
+          const tooltip = (
+            <Tooltip direction="top" offset={[0, -6]} sticky className="graph-tooltip">
+              <div>
+                <div className="graph-tooltip-title">
+                  {node.transport_name || `Transport #${node.transport_id}`}
+                </div>
+                <div className="graph-tooltip-sub">{node.zone_name}</div>
+                <div className="graph-tooltip-meta">
+                  {isHubMode(mode)
+                    ? `${TRANSPORT_MODE_META[mode].label} ${TRANSPORT_MODE_META[mode].hubNoun}`
+                    : `${node.h3_cell_count} cell${node.h3_cell_count === 1 ? "" : "s"} · ${node.zone_type}`}
+                  {node.transport_method ? ` · ${node.transport_method}` : ""}
+                  {node.is_isolated ? " · isolated" : ""}
+                </div>
+                {isHubMode(mode) && node.departure_hub && node.arrival_hub && (
+                  <div className="graph-tooltip-meta">
+                    {node.departure_hub.name || "Departure"}
+                    {node.departure_time ? ` (${node.departure_time})` : ""} →{" "}
+                    {node.arrival_hub.name || "Arrival"}
+                    {node.arrival_time ? ` (${node.arrival_time})` : ""}
+                  </div>
+                )}
+              </div>
+            </Tooltip>
+          );
+
+          // Air/sea routes: draw both terminals (departure + arrival) and the
+          // flight path / shipping lane between them, so an air transporter
+          // sees their actual route — not a single ambiguous dot.
+          if (isHubMode(mode)) {
+            const dep = node.departure_hub;
+            const arr = node.arrival_hub;
+            const routeMeta = TRANSPORT_MODE_META[mode];
+            if (dep && arr) {
+              const routePathOptions = {
+                color: routeMeta.color,
+                weight: isSelected ? 4 : 2.5,
+                opacity: node.is_isolated ? 0.45 : 0.9,
+                dashArray: routeMeta.dashArray,
+                lineCap: "round" as const,
+              };
+              return (
+                <Fragment key={`${node.id}-route-group`}>
+                  {mode === "sea" ? (
+                    <SeaRoutePolyline
+                      departure={{ lat: dep.lat, lng: dep.lng }}
+                      arrival={{ lat: arr.lat, lng: arr.lng }}
+                      pathOptions={routePathOptions}
+                      eventHandlers={{ click: () => onSelectNode?.(node) }}
+                    >
+                      {tooltip}
+                    </SeaRoutePolyline>
+                  ) : (
+                    <Polyline
+                      positions={[
+                        [dep.lat, dep.lng],
+                        [arr.lat, arr.lng],
+                      ]}
+                      pathOptions={routePathOptions}
+                      eventHandlers={{ click: () => onSelectNode?.(node) }}
+                    >
+                      {tooltip}
+                    </Polyline>
+                  )}
+                  <Marker
+                    position={[dep.lat, dep.lng]}
+                    icon={makeTerminalIcon(mode, "departure", {
+                      selected: isSelected,
+                      muted: node.is_isolated,
+                    })}
+                    eventHandlers={{ click: () => onSelectNode?.(node) }}
+                  >
+                    {tooltip}
+                  </Marker>
+                  <Marker
+                    position={[arr.lat, arr.lng]}
+                    icon={makeTerminalIcon(mode, "arrival", {
+                      selected: isSelected,
+                      muted: node.is_isolated,
+                    })}
+                    eventHandlers={{ click: () => onSelectNode?.(node) }}
+                  />
+                </Fragment>
+              );
+            }
+            // Legacy air/sea zone created before terminals existed: single dot.
+            return (
+              <Marker
+                key={node.id}
+                position={center}
+                icon={makeHubIcon(mode, { selected: isSelected, muted: node.is_isolated })}
+                eventHandlers={{ click: () => onSelectNode?.(node) }}
+              >
+                {tooltip}
+              </Marker>
+            );
+          }
+
           return (
             <CircleMarker
               key={node.id}
-              center={[node.primary_coordinate.lat, node.primary_coordinate.lng]}
+              center={center}
               radius={isSelected ? 12 : 9}
               pathOptions={{
                 color: "#ffffff",
@@ -364,25 +524,7 @@ export function GraphMapCanvas({
                 click: () => onSelectNode?.(node),
               }}
             >
-              <Tooltip
-                direction="top"
-                offset={[0, -6]}
-                sticky
-                className="graph-tooltip"
-              >
-                <div>
-                  <div className="graph-tooltip-title">
-                    {node.transport_name || `Transport #${node.transport_id}`}
-                  </div>
-                  <div className="graph-tooltip-sub">{node.zone_name}</div>
-                  <div className="graph-tooltip-meta">
-                    {node.h3_cell_count} cell
-                    {node.h3_cell_count === 1 ? "" : "s"} · {node.zone_type}
-                    {node.transport_method ? ` · ${node.transport_method}` : ""}
-                    {node.is_isolated ? " · isolated" : ""}
-                  </div>
-                </div>
-              </Tooltip>
+              {tooltip}
             </CircleMarker>
           );
         })}
@@ -410,6 +552,28 @@ export function GraphMapCanvas({
             style={{ background: "rgba(245, 158, 11, 0.45)" }}
           />
           Overlap cells
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-0 w-6 rounded"
+            style={{ borderTop: `3px dashed ${TRANSPORT_MODE_META.air.color}` }}
+          />
+          Flight path
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-0 w-6 rounded"
+            style={{ borderTop: `3px dotted ${TRANSPORT_MODE_META.sea.color}` }}
+          />
+          Shipping lane
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-full border-2 border-white" style={{ background: "#22c55e" }} />
+          Departure
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-full border-2 border-white" style={{ background: "#f97316" }} />
+          Arrival
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-full border-2 border-slate-400 border-dashed bg-white" />

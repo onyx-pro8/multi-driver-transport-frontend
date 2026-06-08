@@ -1,19 +1,16 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
-import { Plane, Ship, Truck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Plane, Ship, Truck } from "lucide-react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
 import { listDriverZones } from "@/lib/api";
+import { isHubMode, normalizeTransportMode, TRANSPORT_MODE_META } from "@/lib/transportMode";
 import type { DriverZone } from "@/types";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => <div className="h-[480px] rounded-xl bg-muted animate-pulse" />,
-});
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 export function MapViewPage() {
   const { user } = useAuth();
@@ -36,10 +33,21 @@ export function MapViewPage() {
   const availableCount = zones.filter((z) => z.available).length;
   const unavailableCount = total - availableCount;
 
+  // Air/sea zones are routes (departure → arrival terminal), not areas.
+  const routeZones = useMemo(
+    () => zones.filter((z) => isHubMode(normalizeTransportMode(z.transport_mode))),
+    [zones]
+  );
+  // Routes missing terminal coordinates (e.g. created before the hub model).
+  const incompleteRoutes = useMemo(
+    () => routeZones.filter((z) => !z.departure_hub || !z.arrival_hub),
+    [routeZones]
+  );
+
   const subtitle =
     user?.role === "driver"
       ? "Your zones — drivers see only what they own."
-      : "All driver zones — available zones are solid, unavailable are dashed.";
+      : "All driver zones — land as coverage areas, air/sea as terminal-to-terminal routes.";
 
   return (
     <DashboardShell title="Map View" subtitle={subtitle}>
@@ -59,16 +67,113 @@ export function MapViewPage() {
               <div className="space-y-1.5 text-xs">
                 <div className="flex items-center gap-2">
                   <span className="inline-block h-3 w-5 rounded bg-blue-500/30 border border-blue-500" />
-                  Available
+                  Land coverage
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="inline-block h-3 w-5 rounded bg-blue-500/10 border border-dashed border-blue-500/60" />
-                  Unavailable
+                  <span className="inline-block h-3 w-3 rounded-full border-2 border-white" style={{ background: "#22c55e" }} />
+                  Departure terminal
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-3 w-3 rounded-full border-2 border-white" style={{ background: "#f97316" }} />
+                  Arrival terminal
                 </div>
               </div>
             </CardContent>
           </Card>
         </section>
+
+        {incompleteRoutes.length > 0 && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              {incompleteRoutes.length} air/sea{" "}
+              {incompleteRoutes.length === 1 ? "route is" : "routes are"} missing terminal
+              locations. Edit{" "}
+              {incompleteRoutes.length === 1 ? "it" : "them"} on the Driver Zones page to set
+              departure and arrival {incompleteRoutes.length === 1 ? "terminals" : "terminals"}.
+            </span>
+          </div>
+        )}
+
+        {routeZones.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Air &amp; sea routes</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                      <th className="py-2.5 px-4 font-medium">Mode</th>
+                      <th className="py-2.5 px-4 font-medium">Route</th>
+                      <th className="py-2.5 px-4 font-medium">Departure</th>
+                      <th className="py-2.5 px-4 font-medium">Arrival</th>
+                      <th className="py-2.5 px-4 font-medium">Available</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {routeZones.map((z) => {
+                      const mode = normalizeTransportMode(z.transport_mode);
+                      const meta = TRANSPORT_MODE_META[mode];
+                      return (
+                        <tr key={z.id} className="border-b border-border/70 last:border-0">
+                          <td className="py-2.5 px-4">
+                            <span className="inline-flex items-center gap-1.5">
+                              {mode === "air" ? (
+                                <Plane className="h-3.5 w-3.5" style={{ color: meta.color }} />
+                              ) : (
+                                <Ship className="h-3.5 w-3.5" style={{ color: meta.color }} />
+                              )}
+                              {meta.label}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 font-medium">{z.zone_name}</td>
+                          <td className="py-2.5 px-4">
+                            {z.departure_hub ? (
+                              <span>
+                                <span className="text-green-600 font-medium">{z.departure_hub.name || "—"}</span>
+                                {z.departure_time ? (
+                                  <span className="text-muted-foreground"> · {z.departure_time}</span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="text-amber-600">Not set</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            {z.arrival_hub ? (
+                              <span>
+                                <span className="text-orange-500 font-medium">{z.arrival_hub.name || "—"}</span>
+                                {z.arrival_time ? (
+                                  <span className="text-muted-foreground"> · {z.arrival_time}</span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="text-amber-600">Not set</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                z.available
+                                  ? "bg-green-500/10 text-green-700 dark:text-green-300 border border-green-500/20"
+                                  : "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300 border border-zinc-500/20"
+                              }`}
+                            >
+                              {z.available ? "Yes" : "No"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">All zones</CardTitle>

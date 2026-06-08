@@ -1,15 +1,11 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
 import type { DriverZone } from "@/types";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => <div className="h-48 rounded-xl bg-muted animate-pulse" />,
-});
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 interface MapPreviewCardProps {
   zones: DriverZone[];

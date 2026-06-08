@@ -28,6 +28,8 @@ interface Props {
   required?: boolean;
   /** Optional disabled state (e.g. while saving). */
   disabled?: boolean;
+  /** Float airports/ports to the top of results (hub terminal pickers). */
+  preferTerminals?: boolean;
 }
 
 /**
@@ -43,6 +45,7 @@ export function AddressSearchInput({
   id,
   required,
   disabled,
+  preferTerminals = false,
 }: Props) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -77,7 +80,7 @@ export function AddressSearchInput({
       abortRef.current = controller;
       setLoading(true);
       try {
-        const data = await searchPlaces(q, controller.signal);
+        const data = await searchPlaces(q, controller.signal, { preferTerminals });
         setResults(data);
         setOpen(true);
         setActiveIndex(-1);
@@ -95,7 +98,7 @@ export function AddressSearchInput({
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [value]);
+  }, [value, preferTerminals]);
 
   useEffect(() => {
     function onDocClick(ev: MouseEvent) {

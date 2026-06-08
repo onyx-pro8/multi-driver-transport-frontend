@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buildOrderGraph, getOrderGraph, invalidateCache } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { formatCellCoords } from "@/lib/geo";
 import type { Order, OrderGraph } from "@/types";
 import { isOrderGraphZoneNode } from "@/types";
 import { OrderGraphCanvas } from "./OrderGraphCanvas";
@@ -215,21 +216,21 @@ export function OrderGraphPanel({ order }: Props) {
         </div>
       )}
 
-      {/* Pickup / delivery H3 */}
+      {/* Pickup / delivery coordinates */}
       {graph && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div className="rounded-xl border border-border p-3">
-            <p className="text-xs text-muted-foreground mb-1">Pickup H3</p>
+            <p className="text-xs text-muted-foreground mb-1">Pickup</p>
             <p className="font-mono text-xs break-all">
               <Hexagon className="inline-block h-3 w-3 mr-1 align-text-bottom" />
-              {graph.pickup_h3 ?? "—"}
+              {formatCellCoords(graph.pickup_h3)}
             </p>
           </div>
           <div className="rounded-xl border border-border p-3">
-            <p className="text-xs text-muted-foreground mb-1">Delivery H3</p>
+            <p className="text-xs text-muted-foreground mb-1">Delivery</p>
             <p className="font-mono text-xs break-all">
               <Hexagon className="inline-block h-3 w-3 mr-1 align-text-bottom" />
-              {graph.delivery_h3 ?? "—"}
+              {formatCellCoords(graph.delivery_h3)}
             </p>
           </div>
         </div>

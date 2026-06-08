@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { Hexagon, Loader2, PenLine, Pentagon, Plane, Ship, Truck } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getResolution, isValidCell } from "h3-js";
@@ -18,26 +17,25 @@ import {
   polygonAreaKm2,
 } from "@/lib/geo";
 import { cn, currencyLabel } from "@/lib/utils";
+import { isHubMode, type HubRole } from "@/lib/transportMode";
+import { isLikelyWater, reverseGeocode } from "@/lib/places";
+import { AddressSearchInput, type SelectedPlace } from "@/components/ui/AddressSearchInput";
 import {
   CURRENCIES,
   type CellInputMode,
   type ConvertH3Response,
   type Currency,
   type DriverZone,
+  type HubTerminal,
   type LatLngPoint,
   type TransportMode,
 } from "@/types";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[360px] rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
-      Loading map…
-    </div>
-  ),
-});
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 const RESOLUTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+/** Default H3 resolution for hub-derived cells on air/sea routes. */
+const HUB_ROUTE_RESOLUTION = 7;
 
 // Module-level constant so the "no cells" prop has a stable reference
 // across renders. Prevents H3MapView from invalidating downstream memos.
@@ -63,6 +61,17 @@ function parseManualCells(text: string): string[] {
     .split(/[\s,]+/)
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/**
+ * Concise terminal label from a picked place. Nominatim `display_name` is
+ * very long ("Toronto Pearson International Airport, 6301, Silver Dart Drive,
+ * Mississauga, …"); the leading segment is the venue name, which is the
+ * meaningful terminal label.
+ */
+function hubLabelFromPlace(place: SelectedPlace): string {
+  const first = place.display_name.split(",")[0]?.trim();
+  return first || place.label || place.display_name;
 }
 
 export function AddDriverZoneForm({
@@ -94,6 +103,14 @@ export function AddDriverZoneForm({
    * The user can still flip it off and choose manually.
    */
   const [autoResolution, setAutoResolution] = useState(true);
+  const [departureHub, setDepartureHub] = useState<HubTerminal | null>(null);
+  const [arrivalHub, setArrivalHub] = useState<HubTerminal | null>(null);
+  const [departureTime, setDepartureTime] = useState("");
+  const [arrivalTime, setArrivalTime] = useState("");
+  const [activeHubPick, setActiveHubPick] = useState<HubRole>("departure");
+  const [hubWaterWarning, setHubWaterWarning] = useState<string | null>(null);
+
+  const isHubRoute = isHubMode(transportMode);
 
   useEffect(() => {
     if (editingZone) {
@@ -107,6 +124,10 @@ export function AddDriverZoneForm({
       setCurrency(editingZone.currency ?? "USD");
       setAvailable(editingZone.available ?? true);
       setTrustForwarder(editingZone.trust_payment_forwarder ?? false);
+      setDepartureHub(editingZone.departure_hub);
+      setArrivalHub(editingZone.arrival_hub);
+      setDepartureTime(editingZone.departure_time ?? "");
+      setArrivalTime(editingZone.arrival_time ?? "");
       if (editingZone.boundary && editingZone.boundary.length >= 3) {
         setBoundary(editingZone.boundary);
         setMode("geofence");
@@ -130,6 +151,49 @@ export function AddDriverZoneForm({
       setManualText(selectedCells.join("\n"));
     }
   }, [selectedCells, mode]);
+
+  // Best-effort land/water check: warn (don't block) if a terminal hub looks
+  // like it was dropped on open water. Client requirement: transfers must
+  // happen on land. Coastal ports sit on the waterline, so this is advisory.
+  useEffect(() => {
+    if (!isHubRoute) {
+      setHubWaterWarning(null);
+      return;
+    }
+    const depValid = departureHub && Number.isFinite(departureHub.lat) && Number.isFinite(departureHub.lng);
+    const arrValid = arrivalHub && Number.isFinite(arrivalHub.lat) && Number.isFinite(arrivalHub.lng);
+    if (!depValid && !arrValid) {
+      setHubWaterWarning(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const offenders: string[] = [];
+      if (depValid) {
+        const r = await reverseGeocode(departureHub!.lat, departureHub!.lng, controller.signal);
+        if (isLikelyWater(r)) offenders.push("departure");
+      }
+      if (arrValid) {
+        const r = await reverseGeocode(arrivalHub!.lat, arrivalHub!.lng, controller.signal);
+        if (isLikelyWater(r)) offenders.push("arrival");
+      }
+      if (offenders.length > 0) {
+        setHubWaterWarning(
+          `The ${offenders.join(" and ")} terminal${
+            offenders.length > 1 ? "s appear" : " appears"
+          } to be on water. Transfers must happen on land — place ${
+            offenders.length > 1 ? "them" : "it"
+          } on the airport/port itself.`
+        );
+      } else {
+        setHubWaterWarning(null);
+      }
+    }, 700);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [isHubRoute, departureHub?.lat, departureHub?.lng, arrivalHub?.lat, arrivalHub?.lng]);
 
   const resolutionNum = Number(resolution);
 
@@ -212,7 +276,28 @@ export function AddDriverZoneForm({
     setTrustForwarder(false);
     setMode("draw");
     setAutoResolution(true);
+    setDepartureHub(null);
+    setArrivalHub(null);
+    setDepartureTime("");
+    setArrivalTime("");
+    setActiveHubPick("departure");
   }, []);
+
+  function handleTransportModeChange(next: TransportMode) {
+    setTransportMode(next);
+    if (isHubMode(next)) {
+      setMode("draw");
+      setSelectedCells([]);
+      setBoundary([]);
+      setManualText("");
+      setResolution(String(HUB_ROUTE_RESOLUTION));
+    } else {
+      setDepartureHub(null);
+      setArrivalHub(null);
+      setDepartureTime("");
+      setArrivalTime("");
+    }
+  }
 
   const handleCancel = useCallback(() => {
     clearForm();
@@ -233,7 +318,28 @@ export function AddDriverZoneForm({
 
     const finalZoneName = zoneName.trim() || `${driverName.trim()} Zone`;
 
-    if (mode === "geofence") {
+    if (isHubRoute) {
+      if (transportMode !== "air" && transportMode !== "sea") {
+        onMessage("Select Air or Sea transport mode for terminal routes.", "error");
+        return;
+      }
+      if (!departureHub?.name.trim()) {
+        onMessage("Departure terminal name is required.", "error");
+        return;
+      }
+      if (!Number.isFinite(departureHub.lat) || !Number.isFinite(departureHub.lng)) {
+        onMessage("Place the departure terminal on the map.", "error");
+        return;
+      }
+      if (!arrivalHub?.name.trim()) {
+        onMessage("Arrival terminal name is required.", "error");
+        return;
+      }
+      if (!Number.isFinite(arrivalHub.lat) || !Number.isFinite(arrivalHub.lng)) {
+        onMessage("Place the arrival terminal on the map.", "error");
+        return;
+      }
+    } else if (mode === "geofence") {
       if (boundary.length < 3) {
         onMessage("Draw a geofence with at least 3 points on the map.", "error");
         return;
@@ -243,19 +349,42 @@ export function AddDriverZoneForm({
       return;
     }
 
-    const payload = {
-      driver_name: driverName.trim(),
-      zone_name: finalZoneName,
-      resolution: resolutionNum,
-      transport_mode: transportMode,
-      rate_cost: rate,
-      currency,
-      available,
-      trust_payment_forwarder: trustForwarder,
-      ...(mode === "geofence"
-        ? { boundary, h3_cells: undefined }
-        : { h3_cells: selectedCells, boundary: null }),
-    };
+    const payload = isHubRoute
+      ? {
+          driver_name: driverName.trim(),
+          zone_name: finalZoneName,
+          resolution: HUB_ROUTE_RESOLUTION,
+          transport_mode: transportMode,
+          departure_hub: {
+            name: departureHub!.name.trim(),
+            lat: departureHub!.lat,
+            lng: departureHub!.lng,
+          },
+          arrival_hub: {
+            name: arrivalHub!.name.trim(),
+            lat: arrivalHub!.lat,
+            lng: arrivalHub!.lng,
+          },
+          departure_time: departureTime.trim() || null,
+          arrival_time: arrivalTime.trim() || null,
+          rate_cost: rate,
+          currency,
+          available,
+          trust_payment_forwarder: trustForwarder,
+        }
+      : {
+          driver_name: driverName.trim(),
+          zone_name: finalZoneName,
+          resolution: resolutionNum,
+          transport_mode: transportMode,
+          rate_cost: rate,
+          currency,
+          available,
+          trust_payment_forwarder: trustForwarder,
+          ...(mode === "geofence"
+            ? { boundary, h3_cells: undefined }
+            : { h3_cells: selectedCells, boundary: null }),
+        };
 
     setSaving(true);
     try {
@@ -281,6 +410,12 @@ export function AddDriverZoneForm({
     setBoundary([]);
     setManualText("");
     setAutoResolution(true);
+    if (isHubRoute) {
+      setDepartureHub(null);
+      setArrivalHub(null);
+      setDepartureTime("");
+      setArrivalTime("");
+    }
   }
 
   return (
@@ -313,64 +448,66 @@ export function AddDriverZoneForm({
                 onChange={(e) => setZoneName(e.target.value)}
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label>
-                  H3 Resolution
-                  {mode === "geofence" && autoResolution && (
-                    <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-primary">
-                      auto
-                    </span>
-                  )}
-                </Label>
-                <Select
-                  value={resolution}
-                  onChange={(e) => {
-                    if (mode === "geofence") setAutoResolution(false);
-                    setResolution(e.target.value);
-                  }}
-                >
-                  {RESOLUTIONS.map((r) => (
-                    <option key={r} value={String(r)}>
-                      {r}
-                    </option>
-                  ))}
-                </Select>
-                {mode === "geofence" && geofenceArea > 0 && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                    <span>
-                      Area:{" "}
-                      <span className="font-medium text-foreground">
-                        {formatAreaKm2(geofenceArea)}
+            <div className={cn("grid gap-3", isHubRoute ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
+              {!isHubRoute && (
+                <div>
+                  <Label>
+                    H3 Resolution
+                    {mode === "geofence" && autoResolution && (
+                      <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                        auto
                       </span>
-                    </span>
-                    <span>
-                      ≈{" "}
-                      <span
-                        className={cn(
-                          "font-medium",
-                          estimatedCells > 1500 ? "text-danger" : "text-foreground"
-                        )}
-                      >
-                        {estimatedCells.toLocaleString()}
-                      </span>{" "}
-                      cells
-                    </span>
-                    {!autoResolution && recommendedResolution != null && recommendedResolution !== resolutionNum && (
-                      <button
-                        type="button"
-                        className="text-primary hover:underline"
-                        onClick={() => {
-                          setAutoResolution(true);
-                          setResolution(String(recommendedResolution));
-                        }}
-                      >
-                        Use auto (r{recommendedResolution})
-                      </button>
                     )}
-                  </div>
-                )}
-              </div>
+                  </Label>
+                  <Select
+                    value={resolution}
+                    onChange={(e) => {
+                      if (mode === "geofence") setAutoResolution(false);
+                      setResolution(e.target.value);
+                    }}
+                  >
+                    {RESOLUTIONS.map((r) => (
+                      <option key={r} value={String(r)}>
+                        {r}
+                      </option>
+                    ))}
+                  </Select>
+                  {mode === "geofence" && geofenceArea > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span>
+                        Area:{" "}
+                        <span className="font-medium text-foreground">
+                          {formatAreaKm2(geofenceArea)}
+                        </span>
+                      </span>
+                      <span>
+                        ≈{" "}
+                        <span
+                          className={cn(
+                            "font-medium",
+                            estimatedCells > 1500 ? "text-danger" : "text-foreground"
+                          )}
+                        >
+                          {estimatedCells.toLocaleString()}
+                        </span>{" "}
+                        cells
+                      </span>
+                      {!autoResolution && recommendedResolution != null && recommendedResolution !== resolutionNum && (
+                        <button
+                          type="button"
+                          className="text-primary hover:underline"
+                          onClick={() => {
+                            setAutoResolution(true);
+                            setResolution(String(recommendedResolution));
+                          }}
+                        >
+                          Use auto (r{recommendedResolution})
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <Label>Rate / Cost</Label>
                 <div className="flex gap-2">
@@ -405,7 +542,7 @@ export function AddDriverZoneForm({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setTransportMode(m)}
+                    onClick={() => handleTransportModeChange(m)}
                     className={cn(
                       "flex items-center gap-2 rounded-xl border px-3 py-2 cursor-pointer transition-colors text-sm",
                       transportMode === m
@@ -444,40 +581,167 @@ export function AddDriverZoneForm({
               </label>
             </div>
 
-            <div>
-              <Label>Define zone by</Label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant={mode === "draw" ? "primary" : "outline"}
-                  size="sm"
-                  onClick={() => setMode("draw")}
-                >
-                  <PenLine className="h-4 w-4" />
-                  H3 cells
-                </Button>
-                <Button
-                  type="button"
-                  variant={mode === "geofence" ? "primary" : "outline"}
-                  size="sm"
-                  onClick={() => setMode("geofence")}
-                >
-                  <Pentagon className="h-4 w-4" />
-                  Geofence
-                </Button>
-                <Button
-                  type="button"
-                  variant={mode === "manual" ? "primary" : "outline"}
-                  size="sm"
-                  onClick={() => setMode("manual")}
-                >
-                  <Hexagon className="h-4 w-4" />
-                  Cell IDs
-                </Button>
-              </div>
-            </div>
+            {isHubRoute ? (
+              <div className="space-y-4 rounded-xl border border-border p-4 bg-muted/30">
+                <p className="text-sm font-medium">
+                  {transportMode === "air" ? "Airport" : "Port"} route terminals
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Define the departure and arrival {transportMode === "air" ? "airports" : "ports"} for
+                  this route. Click the map to place each terminal.
+                </p>
 
-            {mode === "manual" && (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeHubPick === "departure" ? "primary" : "outline"}
+                    onClick={() => setActiveHubPick("departure")}
+                  >
+                    Place departure
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeHubPick === "arrival" ? "primary" : "outline"}
+                    onClick={() => setActiveHubPick("arrival")}
+                  >
+                    Place arrival
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label>Departure {transportMode === "air" ? "airport" : "port"}</Label>
+                    <AddressSearchInput
+                      preferTerminals
+                      placeholder={
+                        transportMode === "air"
+                          ? "Search airport (e.g. Toronto Pearson, YYZ)"
+                          : "Search port (e.g. Port of Halifax)"
+                      }
+                      value={departureHub?.name ?? ""}
+                      onChange={(text) =>
+                        setDepartureHub((prev) => ({
+                          name: text,
+                          lat: prev?.lat ?? NaN,
+                          lng: prev?.lng ?? NaN,
+                        }))
+                      }
+                      onPick={(place: SelectedPlace) => {
+                        setActiveHubPick("departure");
+                        setDepartureHub({
+                          name: hubLabelFromPlace(place),
+                          lat: place.lat,
+                          lng: place.lng,
+                        });
+                      }}
+                    />
+                    {departureHub && Number.isFinite(departureHub.lat) && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {departureHub.lat.toFixed(4)}, {departureHub.lng.toFixed(4)}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label>Arrival {transportMode === "air" ? "airport" : "port"}</Label>
+                    <AddressSearchInput
+                      preferTerminals
+                      placeholder={
+                        transportMode === "air"
+                          ? "Search airport (e.g. Montreal, YUL)"
+                          : "Search port (e.g. Port of Montreal)"
+                      }
+                      value={arrivalHub?.name ?? ""}
+                      onChange={(text) =>
+                        setArrivalHub((prev) => ({
+                          name: text,
+                          lat: prev?.lat ?? NaN,
+                          lng: prev?.lng ?? NaN,
+                        }))
+                      }
+                      onPick={(place: SelectedPlace) => {
+                        setActiveHubPick("arrival");
+                        setArrivalHub({
+                          name: hubLabelFromPlace(place),
+                          lat: place.lat,
+                          lng: place.lng,
+                        });
+                      }}
+                    />
+                    {arrivalHub && Number.isFinite(arrivalHub.lat) && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {arrivalHub.lat.toFixed(4)}, {arrivalHub.lng.toFixed(4)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Tip: search for the {transportMode === "air" ? "airport" : "port"} by name, or
+                  click the map to drop a terminal manually.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label>Departure time (optional)</Label>
+                    <Input
+                      type="time"
+                      value={departureTime}
+                      onChange={(e) => setDepartureTime(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Arrival time (optional)</Label>
+                    <Input
+                      type="time"
+                      value={arrivalTime}
+                      onChange={(e) => setArrivalTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {hubWaterWarning && (
+                  <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                    {hubWaterWarning}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <Label>Define zone by</Label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={mode === "draw" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setMode("draw")}
+                  >
+                    <PenLine className="h-4 w-4" />
+                    H3 cells
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={mode === "geofence" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setMode("geofence")}
+                  >
+                    <Pentagon className="h-4 w-4" />
+                    Geofence
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={mode === "manual" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setMode("manual")}
+                  >
+                    <Hexagon className="h-4 w-4" />
+                    Cell IDs
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!isHubRoute && mode === "manual" && (
               <div>
                 <Label>H3 Cell IDs (comma or newline separated)</Label>
                 <textarea
@@ -498,7 +762,16 @@ export function AddDriverZoneForm({
             )}
 
             <p className="text-sm text-muted-foreground">
-              {mode === "geofence" ? (
+              {isHubRoute ? (
+                <>
+                  Terminals placed:{" "}
+                  <span className="font-semibold text-foreground">
+                    {(departureHub && Number.isFinite(departureHub.lat) ? 1 : 0) +
+                      (arrivalHub && Number.isFinite(arrivalHub.lat) ? 1 : 0)}
+                  </span>{" "}
+                  / 2
+                </>
+              ) : mode === "geofence" ? (
                 <>
                   Geofence vertices:{" "}
                   <span className="font-semibold text-foreground">{boundary.length}</span>
@@ -531,24 +804,25 @@ export function AddDriverZoneForm({
           <div className="min-h-[360px]">
             <H3MapView
               height={360}
-              resolution={resolutionNum}
+              resolution={isHubRoute ? HUB_ROUTE_RESOLUTION : resolutionNum}
               selectedCells={selectedCellsForMap}
-              onCellsChange={mode === "draw" ? setSelectedCells : undefined}
-              geofenceEnabled={mode === "geofence"}
+              onCellsChange={!isHubRoute && mode === "draw" ? setSelectedCells : undefined}
+              geofenceEnabled={!isHubRoute && mode === "geofence"}
               boundary={boundary}
-              onBoundaryChange={mode === "geofence" ? setBoundary : undefined}
-              /*
-                When editing an existing geofence the user is mostly fine-
-                tuning the polygon, so clicks on empty map shouldn't keep
-                appending new vertices — that's a creation-time UX. They
-                can still drag points and click an edge to insert one.
-              */
+              onBoundaryChange={!isHubRoute && mode === "geofence" ? setBoundary : undefined}
               geofenceAppendOnMapClick={!editingZone}
               savedZones={savedZonesForMap}
               conversion={conversion}
-              drawEnabled={mode === "draw"}
+              drawEnabled={!isHubRoute && mode === "draw"}
               focusZone={editingZone}
               interactive
+              hubPlacementEnabled={isHubRoute}
+              hubTransportMode={transportMode === "sea" ? "sea" : "air"}
+              activeHubPick={activeHubPick}
+              departureHub={departureHub}
+              arrivalHub={arrivalHub}
+              onDepartureHubChange={setDepartureHub}
+              onArrivalHubChange={setArrivalHub}
             />
           </div>
         </form>

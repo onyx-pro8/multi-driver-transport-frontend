@@ -89,6 +89,24 @@ export function estimateCellCount(areaKm2: number, resolution: number): number {
   return Math.max(1, Math.round(areaKm2 / avg));
 }
 
+/**
+ * Format an H3 cell as its geographic center "lat, lng".
+ *
+ * The raw H3 index (e.g. `84195d3ffffffff`) is meaningless to end users, so
+ * everywhere we previously surfaced the index we instead show the cell's
+ * center coordinates. Returns `—` for empty input and falls back to the raw
+ * value if it isn't a valid H3 cell.
+ */
+export function formatCellCoords(
+  cell: string | null | undefined,
+  precision = 6
+): string {
+  if (!cell) return "—";
+  if (!isValidCell(cell)) return cell;
+  const [lat, lng] = cellToLatLng(cell);
+  return `${lat.toFixed(precision)}, ${lng.toFixed(precision)}`;
+}
+
 /** Human-readable area: m² under 0.01 km², otherwise km² with sensible precision. */
 export function formatAreaKm2(km2: number): string {
   if (!Number.isFinite(km2) || km2 <= 0) return "—";
@@ -122,6 +140,9 @@ export function haversineKm(a: LatLngPoint, b: LatLngPoint): number {
  * bounded for very large zones.
  */
 export function zoneCentroid(zone: DriverZone): LatLngPoint | null {
+  if (zone.departure_hub) {
+    return { lat: zone.departure_hub.lat, lng: zone.departure_hub.lng };
+  }
   if (zone.boundary && zone.boundary.length > 0) {
     return averagePoints(zone.boundary);
   }

@@ -1,7 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { cellToLatLng, isValidCell } from "h3-js";
 import {
   AlertTriangle,
   ArrowRight,
@@ -9,32 +9,139 @@ import {
   Info,
   Loader2,
   Map as MapIcon,
+  X,
   XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 import type { H3MapAdjacentPair } from "@/components/map/H3MapView";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
+import { formatCellCoords } from "@/lib/geo";
+import { isHubMode, normalizeTransportMode } from "@/lib/transportMode";
 import { cn } from "@/lib/utils";
 import type {
   ConvertH3Response,
   DriverZone,
   OrderConnectionStatus,
+  OrderDraftChain,
+  OrderDraftConnection,
   OrderDraftPreview,
   OrderDraftZoneSummary,
   TransportMode,
 } from "@/types";
 
-// Leaflet has no SSR support; load the map only in the browser. The orders
-// page already does this — we mirror the same pattern + skeleton so the
-// preview card doesn't shift when the map mounts.
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[320px] rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
-      Loading map…
-    </div>
-  ),
-});
+interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+/** Center of an H3 cell, or null if the index is invalid. */
+function cellCenter(cell: string): LatLng | null {
+  if (!isValidCell(cell)) return null;
+  const [lat, lng] = cellToLatLng(cell);
+  return { lat, lng };
+}
+
+/** Average center of a zone's sampled cells — a cheap centroid for fallbacks. */
+function zoneCenter(z: OrderDraftZoneSummary | undefined): LatLng | null {
+  if (!z) return null;
+  const cells = Array.isArray(z.cells) ? z.cells : [];
+  let lat = 0;
+  let lng = 0;
+  let n = 0;
+  for (const c of cells) {
+    const center = cellCenter(c);
+    if (center) {
+      lat += center.lat;
+      lng += center.lng;
+      n++;
+    }
+  }
+  if (n === 0) return null;
+  return { lat: lat / n, lng: lng / n };
+}
+
+/**
+ * The geographic handoff point for one connection on a selected route.
+ * Hub connections meet at the airport/port; land connections meet at the
+ * transfer cell (falling back to the midpoint of the two zone centroids).
+ */
+function connectionWaypoint(
+  c: OrderDraftConnection,
+  zonesById: Map<number, OrderDraftZoneSummary>
+): LatLng | null {
+  if (c.connection_type === "hub") {
+    const role = c.hub_role_a ?? c.hub_role_b ?? null;
+    const hubZoneId = c.hub_role_a ? c.from_zone_id : c.to_zone_id;
+    const hubZone = zonesById.get(hubZoneId);
+    const hub = role === "departure" ? hubZone?.departure_hub : hubZone?.arrival_hub;
+    if (hub && Number.isFinite(hub.lat) && Number.isFinite(hub.lng)) {
+      return { lat: hub.lat, lng: hub.lng };
+    }
+  }
+  if (c.transfer_cells.length > 0) {
+    const center = cellCenter(c.transfer_cells[0]);
+    if (center) return center;
+  }
+  if (c.adjacent_cell_pairs.length > 0) {
+    const center = cellCenter(c.adjacent_cell_pairs[0].from_cell);
+    if (center) return center;
+  }
+  const a = zoneCenter(zonesById.get(c.from_zone_id));
+  const b = zoneCenter(zonesById.get(c.to_zone_id));
+  if (a && b) return { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
+  return a ?? b ?? null;
+}
+
+/**
+ * Land-only polyline legs for a selected chain. Segments stop at departure
+ * hubs and resume at arrival hubs — the air/sea zone's own flight path /
+ * shipping lane (rendered by SavedZonesLayer) covers the middle leg.
+ */
+function buildRouteSegments(
+  chain: OrderDraftChain,
+  connectionsById: Map<number, OrderDraftConnection>,
+  zonesById: Map<number, OrderDraftZoneSummary>,
+  source: LatLng,
+  destination: LatLng
+): LatLng[][] {
+  const segments: LatLng[][] = [];
+  let current: LatLng[] = [source];
+
+  for (let i = 0; i < chain.connection_ids.length; i++) {
+    const conn = connectionsById.get(chain.connection_ids[i]);
+    if (!conn) continue;
+    const wp = connectionWaypoint(conn, zonesById);
+    const zoneFrom = zonesById.get(chain.zone_ids[i]);
+    const zoneTo = zonesById.get(chain.zone_ids[i + 1]);
+    const fromHub = zoneFrom && isHubMode(normalizeTransportMode(zoneFrom.transport_method));
+    const toHub = zoneTo && isHubMode(normalizeTransportMode(zoneTo.transport_method));
+
+    if (fromHub || toHub) {
+      // Land → air/sea: draw up to the departure hub, then stop.
+      if (!fromHub && toHub && wp) {
+        current.push(wp);
+        if (current.length >= 2) segments.push([...current]);
+        current = [];
+      }
+      // air/sea → land: resume from the arrival hub.
+      else if (fromHub && !toHub && wp) {
+        current = [wp];
+      }
+      // air/sea ↔ air/sea or other hub-only hop: no overlay line.
+      else if (current.length >= 2) {
+        segments.push([...current]);
+        current = [];
+      }
+    } else if (wp) {
+      current.push(wp);
+    }
+  }
+
+  current.push(destination);
+  if (current.length >= 2) segments.push(current);
+  return segments;
+}
 
 interface Props {
   preview: OrderDraftPreview | null;
@@ -101,6 +208,10 @@ function summaryToDriverZone(z: OrderDraftZoneSummary): DriverZone {
     cell_count: z.cell_count,
     transport_mode: ((z.transport_method ?? "land") as TransportMode),
     boundary: null,
+    departure_hub: z.departure_hub ?? null,
+    arrival_hub: z.arrival_hub ?? null,
+    departure_time: z.departure_time ?? null,
+    arrival_time: z.arrival_time ?? null,
     rate_cost: 0,
     currency: "USD",
     available: true,
@@ -115,16 +226,37 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
   // preview to render so the conditional returns below don't violate the
   // rules-of-hooks.
 
+  // Which path in the list is selected (null = show overview: all routes'
+  // zones + the direct pickup→drop-off line).
+  const [selectedChainIdx, setSelectedChainIdx] = useState<number | null>(null);
+
+  // Reset the selection whenever the underlying preview changes (new pickup /
+  // destination / recompute) so a stale index can't point at a different route.
+  const previewKey = preview
+    ? `${preview.source.h3}|${preview.destination.h3}|${preview.possible_connection_chains.length}`
+    : "none";
+  useEffect(() => {
+    setSelectedChainIdx(null);
+  }, [previewKey]);
+
+  const selectedChain = useMemo<OrderDraftChain | null>(() => {
+    if (!preview || selectedChainIdx == null) return null;
+    return preview.possible_connection_chains[selectedChainIdx] ?? null;
+  }, [preview, selectedChainIdx]);
+
   /**
    * The set of zones we actually want to surface on the map: pickup-side,
    * destination-side, and any zone that appears on a connection chain
-   * between them. BFS-reached zones that aren't on any pickup→drop-off
-   * chain are intentionally excluded — they'd be visual noise for the
-   * sender / receiver who only cares about *their* order's network.
+   * between them. When a path is selected we narrow this to *only* that
+   * path's zones.
    */
   const relevantZoneIds = useMemo(() => {
     const ids = new Set<number>();
     if (!preview) return ids;
+    if (selectedChain) {
+      for (const id of selectedChain.zone_ids) ids.add(id);
+      return ids;
+    }
     for (const z of preview.connected_zones ?? []) {
       if (z.is_pickup || z.is_destination) ids.add(z.zone_id);
     }
@@ -132,7 +264,14 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
       for (const id of chain.zone_ids) ids.add(id);
     }
     return ids;
-  }, [preview]);
+  }, [preview, selectedChain]);
+
+  // Connection ids used by the selected path (null when no path selected →
+  // overview shows every used connection's handoff overlays).
+  const selectedConnectionIds = useMemo<Set<number> | null>(() => {
+    if (!selectedChain) return null;
+    return new Set(selectedChain.connection_ids);
+  }, [selectedChain]);
 
   const orderedZones = useMemo(() => {
     if (!preview) return [];
@@ -156,40 +295,84 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
     };
   }, [preview]);
 
+  const zonesById = useMemo(() => {
+    const m = new Map<number, OrderDraftZoneSummary>();
+    for (const z of preview?.connected_zones ?? []) m.set(z.zone_id, z);
+    return m;
+  }, [preview]);
+
+  const connectionsById = useMemo(() => {
+    const m = new Map<number, OrderDraftConnection>();
+    for (const c of preview?.connections ?? []) m.set(c.id, c);
+    return m;
+  }, [preview]);
+
+  // Land-only legs for the *selected* route. Null in overview mode (direct
+  // dashed pickup→drop-off line). Air/sea legs are omitted — each air/sea
+  // zone draws its own flight path / shipping lane.
+  const routeSegmentsForMap = useMemo<LatLng[][] | null>(() => {
+    if (!preview || !selectedChain) return null;
+    return buildRouteSegments(
+      selectedChain,
+      connectionsById,
+      zonesById,
+      { lat: preview.source.lat, lng: preview.source.lng },
+      { lat: preview.destination.lat, lng: preview.destination.lng }
+    );
+  }, [preview, selectedChain, connectionsById, zonesById]);
+
   /**
    * Only show transfer/adjacency markers when both endpoints of the
    * connection are in `relevantZoneIds`. This prevents an "unused" overlap
    * cell from a side branch zone (BFS reached but not on a chain) from
    * leaking onto the map after we hide that zone.
    */
+  /**
+   * Zones whose transport is air/sea: their handoffs happen at the hub/port
+   * endpoint, never at a shared map cell, so any connection touching one
+   * must not contribute a cell-level transfer/adjacency overlay.
+   */
+  const hubZoneIds = useMemo(() => {
+    const ids = new Set<number>();
+    if (!preview) return ids;
+    for (const z of preview.connected_zones ?? []) {
+      if (isHubMode(normalizeTransportMode(z.transport_method))) ids.add(z.zone_id);
+    }
+    return ids;
+  }, [preview]);
+
   const transferCellsForMap = useMemo<string[]>(() => {
     if (!preview) return [];
     const out: string[] = [];
     for (const c of preview.connections ?? []) {
-      if (!c.used_in_preview) continue;
+      // In overview mode show every used connection; when a path is selected
+      // show only that path's connections.
+      if (selectedConnectionIds ? !selectedConnectionIds.has(c.id) : !c.used_in_preview) continue;
       if (c.connection_type !== "overlap") continue;
       if (!relevantZoneIds.has(c.from_zone_id)) continue;
       if (!relevantZoneIds.has(c.to_zone_id)) continue;
+      if (hubZoneIds.has(c.from_zone_id) || hubZoneIds.has(c.to_zone_id)) continue;
       for (const cell of c.transfer_cells) out.push(cell);
     }
     return out;
-  }, [preview, relevantZoneIds]);
+  }, [preview, relevantZoneIds, hubZoneIds, selectedConnectionIds]);
 
   const adjacentPairsForMap = useMemo<H3MapAdjacentPair[]>(() => {
     if (!preview) return [];
     const out: H3MapAdjacentPair[] = [];
     for (const c of preview.connections ?? []) {
-      if (!c.used_in_preview) continue;
+      if (selectedConnectionIds ? !selectedConnectionIds.has(c.id) : !c.used_in_preview) continue;
       if (c.connection_type !== "adjacent") continue;
       if (!relevantZoneIds.has(c.from_zone_id)) continue;
       if (!relevantZoneIds.has(c.to_zone_id)) continue;
+      if (hubZoneIds.has(c.from_zone_id) || hubZoneIds.has(c.to_zone_id)) continue;
       for (const p of c.adjacent_cell_pairs) {
         out.push(p);
         if (out.length >= 200) return out; // hard cap on map detail
       }
     }
     return out;
-  }, [preview, relevantZoneIds]);
+  }, [preview, relevantZoneIds, hubZoneIds, selectedConnectionIds]);
 
   if (loading) {
     return (
@@ -240,13 +423,13 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
       <CardContent className="space-y-3 pt-0">
         <div className="grid grid-cols-2 gap-3 text-xs">
           <Metric
-            label={`Pickup H3 (res ${preview.preview_resolution})`}
-            value={preview.source.h3}
+            label={`Pickup (res ${preview.preview_resolution})`}
+            value={formatCellCoords(preview.source.h3)}
             mono
           />
           <Metric
-            label={`Drop-off H3 (res ${preview.preview_resolution})`}
-            value={preview.destination.h3}
+            label={`Drop-off (res ${preview.preview_resolution})`}
+            value={formatCellCoords(preview.destination.h3)}
             mono
           />
           <Metric label="Pickup zones" value={preview.pickup_zones.length} />
@@ -286,7 +469,9 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
               <MapIcon className="h-3.5 w-3.5 text-muted-foreground" />
               Map preview
               <span className="text-muted-foreground font-normal">
-                (sender, receiver, relevant zones, transfer cells)
+                {selectedChainIdx != null
+                  ? `(tracing path #${selectedChainIdx + 1})`
+                  : "(sender, receiver, relevant zones, transfer cells)"}
               </span>
             </div>
             <div className="h-[320px] rounded-xl overflow-hidden border border-border">
@@ -298,6 +483,7 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
                 conversion={conversionForMap}
                 transferCells={transferCellsForMap}
                 adjacentPairs={adjacentPairsForMap}
+                routeSegments={routeSegmentsForMap}
                 showZoneTooltips={false}
                 interactive
               />
@@ -308,39 +494,69 @@ export function OrderDraftZonePreview({ preview, loading, error }: Props) {
 
         {preview.possible_connection_chains.length > 0 && (
           <div className="rounded-lg border border-border bg-muted/30 p-3">
-            <div className="text-xs font-medium mb-2 flex items-center gap-1">
+            <div className="text-xs font-medium mb-2 flex items-center gap-1 flex-wrap">
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
-              Possible connection chains
+              Possible connection paths
               <span className="text-muted-foreground font-normal">
-                (preview, not a final route)
+                ({preview.possible_connection_chains.length} found · click one to trace it)
               </span>
-            </div>
-            <ul className="space-y-1.5 text-xs">
-              {preview.possible_connection_chains.slice(0, 3).map((chain, idx) => (
-                <li
-                  key={idx}
-                  className="flex flex-wrap items-center gap-1 text-muted-foreground"
+              {selectedChainIdx != null && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedChainIdx(null)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground hover:bg-muted"
                 >
-                  <span className="font-medium text-foreground">Pickup</span>
-                  {chain.zone_ids.map((zid, i) => {
-                    const z = preview.connected_zones.find((zz) => zz.zone_id === zid);
-                    return (
-                      <span key={`${idx}-${i}`} className="flex items-center gap-1">
-                        <ArrowRight className="h-3 w-3" />
-                        <span className="text-foreground">
-                          {z ? `${z.transport_name} · ${z.zone_name}` : `Zone #${zid}`}
-                        </span>
+                  <X className="h-3 w-3" />
+                  Show all paths
+                </button>
+              )}
+            </div>
+            <ol className="space-y-1.5 text-xs max-h-72 overflow-y-auto pr-1">
+              {preview.possible_connection_chains.map((chain, idx) => {
+                const isSelected = selectedChainIdx === idx;
+                return (
+                  <li key={idx}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedChainIdx(isSelected ? null : idx)}
+                      className={cn(
+                        "w-full flex flex-wrap items-center gap-1 text-left text-muted-foreground rounded-md px-2 py-1.5 transition-colors",
+                        isSelected
+                          ? "bg-primary/10 ring-1 ring-primary/40"
+                          : "bg-background/60 hover:bg-muted/70"
+                      )}
+                    >
+                      <span className="text-[10px] font-mono text-muted-foreground mr-1">
+                        #{idx + 1}
                       </span>
-                    );
-                  })}
-                  <ArrowRight className="h-3 w-3" />
-                  <span className="font-medium text-foreground">Drop-off</span>
-                  <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {chain.hops} hop{chain.hops === 1 ? "" : "s"}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                      <span className="font-medium text-foreground">Pickup</span>
+                      {chain.zone_ids.map((zid, i) => {
+                        const z = preview.connected_zones.find((zz) => zz.zone_id === zid);
+                        const hubLeg =
+                          z && isHubMode(normalizeTransportMode(z.transport_method))
+                            ? z.departure_hub && z.arrival_hub
+                              ? ` (${z.departure_hub.name} → ${z.arrival_hub.name})`
+                              : ""
+                            : "";
+                        return (
+                          <span key={`${idx}-${i}`} className="flex items-center gap-1">
+                            <ArrowRight className="h-3 w-3" />
+                            <span className="text-foreground">
+                              {z ? `${z.transport_name} · ${z.zone_name}${hubLeg}` : `Zone #${zid}`}
+                            </span>
+                          </span>
+                        );
+                      })}
+                      <ArrowRight className="h-3 w-3" />
+                      <span className="font-medium text-foreground">Drop-off</span>
+                      <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {chain.hops} hop{chain.hops === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         )}
       </CardContent>

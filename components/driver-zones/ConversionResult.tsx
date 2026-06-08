@@ -47,7 +47,7 @@ export function ConversionResult({
       <CardContent className="space-y-4">
         {!result && !error && (
           <p className="text-sm text-muted-foreground">
-            Convert pickup and drop-off coordinates to see H3 cell IDs here.
+            Convert pickup and drop-off coordinates to see their cell center coordinates here.
           </p>
         )}
 
@@ -60,8 +60,14 @@ export function ConversionResult({
 
         {result && (
           <>
-            <CopyField label="Pickup H3 Cell" value={result.pickup_h3} />
-            <CopyField label="Drop-off H3 Cell" value={result.dropoff_h3} />
+            <CopyField
+              label="Pickup Cell Coordinates"
+              value={`${result.pickup_center.lat.toFixed(6)}, ${result.pickup_center.lng.toFixed(6)}`}
+            />
+            <CopyField
+              label="Drop-off Cell Coordinates"
+              value={`${result.dropoff_center.lat.toFixed(6)}, ${result.dropoff_center.lng.toFixed(6)}`}
+            />
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-xl border border-border p-3">
                 <p className="text-xs text-muted-foreground">Resolution</p>

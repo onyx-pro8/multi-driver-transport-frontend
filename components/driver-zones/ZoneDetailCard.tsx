@@ -1,20 +1,13 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
+import { formatCellCoords } from "@/lib/geo";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { ConvertH3Response, DriverZone } from "@/types";
 
-const H3MapView = dynamic(() => import("@/components/map/H3MapView").then((m) => m.H3MapView), {
-  ssr: false,
-  loading: () => (
-    <div className="h-48 rounded-xl bg-muted animate-pulse flex items-center justify-center text-sm text-muted-foreground">
-      Loading map…
-    </div>
-  ),
-});
+import { H3MapView } from "@/components/map/H3MapViewDynamic";
 
 export function ZoneDetailCard({
   zone,
@@ -95,24 +88,55 @@ export function ZoneDetailCard({
           />
         </div>
 
-        <div>
-          <p className="text-xs text-muted-foreground mb-2">Sample H3 Cells</p>
-          <div className="flex flex-wrap gap-2">
-            {zone.h3_cells.slice(0, 8).map((cell) => (
-              <span
-                key={cell}
-                className="rounded-full bg-green-500/10 text-green-700 dark:text-green-300 border border-green-500/20 px-2.5 py-1 text-xs font-mono"
-              >
-                {cell}
-              </span>
-            ))}
-            {zone.h3_cells.length > 8 && (
-              <span className="text-xs text-muted-foreground self-center">
-                +{zone.h3_cells.length - 8} more
-              </span>
-            )}
+        {(zone.transport_mode === "air" || zone.transport_mode === "sea") &&
+        zone.departure_hub &&
+        zone.arrival_hub ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3">
+              <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-1">
+                Departure {zone.transport_mode === "air" ? "airport" : "port"}
+              </p>
+              <p className="font-medium">{zone.departure_hub.name}</p>
+              <p className="text-xs text-muted-foreground font-mono mt-1">
+                {zone.departure_hub.lat.toFixed(4)}, {zone.departure_hub.lng.toFixed(4)}
+              </p>
+              {zone.departure_time && (
+                <p className="text-xs text-muted-foreground mt-1">Departs {zone.departure_time}</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
+              <p className="text-xs font-medium text-orange-600 dark:text-orange-400 mb-1">
+                Arrival {zone.transport_mode === "air" ? "airport" : "port"}
+              </p>
+              <p className="font-medium">{zone.arrival_hub.name}</p>
+              <p className="text-xs text-muted-foreground font-mono mt-1">
+                {zone.arrival_hub.lat.toFixed(4)}, {zone.arrival_hub.lng.toFixed(4)}
+              </p>
+              {zone.arrival_time && (
+                <p className="text-xs text-muted-foreground mt-1">Arrives {zone.arrival_time}</p>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Sample Cell Coordinates</p>
+            <div className="flex flex-wrap gap-2">
+              {zone.h3_cells.slice(0, 8).map((cell) => (
+                <span
+                  key={cell}
+                  className="rounded-full bg-green-500/10 text-green-700 dark:text-green-300 border border-green-500/20 px-2.5 py-1 text-xs font-mono"
+                >
+                  {formatCellCoords(cell)}
+                </span>
+              ))}
+              {zone.h3_cells.length > 8 && (
+                <span className="text-xs text-muted-foreground self-center">
+                  +{zone.h3_cells.length - 8} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
