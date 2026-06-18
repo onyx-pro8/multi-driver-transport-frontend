@@ -318,46 +318,8 @@ export function getOrderGraphSummary(orderId: number): Promise<OrderGraphSummary
 }
 
 // --------------------------------------------------------------------------
-// Milestone 5 — Rate tables & route cost
+// Milestone 5 — route cost
 // --------------------------------------------------------------------------
-
-export function listRateTables(filters?: {
-  transporter_id?: number;
-  transport_method?: string;
-  is_active?: boolean;
-}): Promise<import("@/types").TransporterRateTable[]> {
-  const params = new URLSearchParams();
-  if (filters?.transporter_id != null) params.set("transporter_id", String(filters.transporter_id));
-  if (filters?.transport_method) params.set("transport_method", filters.transport_method);
-  if (filters?.is_active != null) params.set("is_active", String(filters.is_active));
-  const qs = params.toString();
-  return apiRequest(`/api/transporter-rate-tables${qs ? `?${qs}` : ""}`, {
-    cacheOptions: { ttlMs: TTL_LIST },
-  });
-}
-
-export function createRateTable(
-  payload: import("@/types").CreateRateTableRequest
-): Promise<import("@/types").TransporterRateTable> {
-  return apiRequest("/api/transporter-rate-tables", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateRateTable(
-  id: number,
-  payload: import("@/types").UpdateRateTableRequest
-): Promise<import("@/types").TransporterRateTable> {
-  return apiRequest(`/api/transporter-rate-tables/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function deactivateRateTable(id: number): Promise<void> {
-  return apiRequest(`/api/transporter-rate-tables/${id}`, { method: "DELETE" });
-}
 
 export function getOrderRouteCostComparison(
   orderId: number
@@ -380,5 +342,58 @@ export function applyManualSegmentCost(
   return apiRequest(`/api/route-segment-costs/${segmentCostId}/manual-cost`, {
     method: "POST",
     body: JSON.stringify({ manual_cost: manualCost }),
+  });
+}
+
+export function applyExternalSegmentCost(
+  segmentCostId: number,
+  quotedCost: number
+): Promise<import("@/types").RouteSegmentCost> {
+  return apiRequest(`/api/route-segment-costs/${segmentCostId}/external-cost`, {
+    method: "POST",
+    body: JSON.stringify({ manual_cost: quotedCost }),
+  });
+}
+
+export function fetchExternalSegmentQuote(
+  segmentCostId: number
+): Promise<import("@/types").RouteSegmentCost> {
+  return apiRequest(`/api/route-segment-costs/${segmentCostId}/fetch-external-quote`, {
+    method: "POST",
+  });
+}
+
+export function requestSegmentQuote(
+  segmentCostId: number
+): Promise<import("@/types").RouteSegmentCost> {
+  return apiRequest(`/api/route-segment-costs/${segmentCostId}/request-quote`, {
+    method: "POST",
+  });
+}
+
+export function getTransporterQuoteQueue(): Promise<import("@/types").TransporterQuoteRequest[]> {
+  return apiRequest("/api/route-segment-costs/transporter-queue");
+}
+
+export function updateOrderPackage(
+  orderId: number,
+  body: import("@/types").UpdateOrderPackageRequest
+): Promise<import("@/types").UpdateOrderPackageResponse> {
+  return apiRequest(`/api/orders/${orderId}/package`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getPricingConfig(): Promise<import("@/types").PricingConfig> {
+  return apiRequest("/api/pricing/config");
+}
+
+export function updatePricingConfig(
+  body: import("@/types").UpdatePricingConfigRequest
+): Promise<import("@/types").PricingConfig> {
+  return apiRequest("/api/pricing/config", {
+    method: "PATCH",
+    body: JSON.stringify(body),
   });
 }

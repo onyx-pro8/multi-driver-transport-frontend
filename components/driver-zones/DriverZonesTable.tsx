@@ -55,13 +55,15 @@ export function DriverZonesTable({
         )}
       </CardHeader>
       <CardContent className="overflow-x-auto">
-        <table className="w-full min-w-[920px] text-sm">
+        <table className="w-full min-w-[1100px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="py-3 pr-4 font-medium">Driver</th>
               <th className="py-3 pr-4 font-medium">Zone</th>
               <th className="py-3 pr-4 font-medium">Mode</th>
-              <th className="py-3 pr-4 font-medium">Base fee</th>
+              <th className="py-3 pr-4 font-medium">Base cost</th>
+              <th className="py-3 pr-4 font-medium">Per km</th>
+              <th className="py-3 pr-4 font-medium">Per hr</th>
               <th className="py-3 pr-4 font-medium">Available</th>
               <th className="py-3 pr-4 font-medium">Trust forwarder</th>
               <th className="py-3 pr-4 font-medium">Cells</th>
@@ -72,7 +74,7 @@ export function DriverZonesTable({
           <tbody>
             {zones.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-muted-foreground">
+                <td colSpan={11} className="py-8 text-center text-muted-foreground">
                   No driver zones yet.
                 </td>
               </tr>
@@ -99,6 +101,16 @@ export function DriverZonesTable({
                 <td className="py-3 pr-4">
                   {zone.base_fee != null
                     ? formatCurrency(Number(zone.base_fee), zone.currency)
+                    : "—"}
+                </td>
+                <td className="py-3 pr-4">
+                  {zone.cost_per_km != null
+                    ? formatCurrency(Number(zone.cost_per_km), zone.currency)
+                    : "—"}
+                </td>
+                <td className="py-3 pr-4">
+                  {zone.cost_per_hour != null
+                    ? formatCurrency(Number(zone.cost_per_hour), zone.currency)
                     : "—"}
                 </td>
                 <td className="py-3 pr-4">

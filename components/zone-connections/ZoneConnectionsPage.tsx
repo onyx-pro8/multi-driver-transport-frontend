@@ -950,6 +950,7 @@ function partyToDisplayZone(p: ZoneConnectionParty): DriverZone {
     base_fee: null,
     cost_per_h3_cell: null,
     cost_per_km: null,
+    cost_per_hour: null,
     cost_per_kg: null,
     cost_per_volume_unit: null,
     time_of_day_factor: null,

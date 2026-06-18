@@ -34,7 +34,6 @@ export function ZoneDetailCard({
   }
 
   const isLine = zone.transport_mode === "air" || zone.transport_mode === "sea";
-  const perUnitRate = isLine ? zone.cost_per_km : zone.cost_per_h3_cell;
   const routeDistanceKm =
     isLine && zone.departure_hub && zone.arrival_hub
       ? haversineKm(
@@ -65,7 +64,7 @@ export function ZoneDetailCard({
             <p className="font-medium capitalize">{zone.transport_mode}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Base fee</p>
+            <p className="text-xs text-muted-foreground">Base cost</p>
             <p className="font-medium">
               {zone.base_fee != null
                 ? formatCurrency(Number(zone.base_fee), zone.currency)
@@ -74,12 +73,18 @@ export function ZoneDetailCard({
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">
-              {isLine ? "Cost per km" : "Cost per H3 cell"}
-            </p>
+            <p className="text-xs text-muted-foreground">Cost per km</p>
             <p className="font-medium">
-              {perUnitRate != null
-                ? formatCurrency(Number(perUnitRate), zone.currency)
+              {zone.cost_per_km != null
+                ? formatCurrency(Number(zone.cost_per_km), zone.currency)
+                : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Cost per hour</p>
+            <p className="font-medium">
+              {zone.cost_per_hour != null
+                ? formatCurrency(Number(zone.cost_per_hour), zone.currency)
                 : "—"}
             </p>
           </div>

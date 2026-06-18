@@ -15,6 +15,12 @@ import {
 } from "@/lib/api";
 import type { Order, OrderDraftPreview, ReceiverSummary } from "@/types";
 import { OrderDraftZonePreview } from "@/components/orders/OrderDraftZonePreview";
+import {
+  PACKAGE_TYPES,
+  PACKAGE_TYPE_LABELS,
+  PRICING_UNITS,
+  type PackageType,
+} from "@/lib/pricing";
 
 interface Props {
   onCreated: (order: Order) => void;
@@ -35,12 +41,11 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [shippingMethod, setShippingMethod] = useState("");
   const [packageDescription, setPackageDescription] = useState("");
-  const [weightKg, setWeightKg] = useState("");
+  const [packageType, setPackageType] = useState<PackageType>("medium");
+  const [weightLbs, setWeightLbs] = useState("");
   const [packageLength, setPackageLength] = useState("");
   const [packageWidth, setPackageWidth] = useState("");
   const [packageHeight, setPackageHeight] = useState("");
-  const [packageWeightUnit, setPackageWeightUnit] = useState("kg");
-  const [packageDimensionUnit, setPackageDimensionUnit] = useState("m");
   const [dimensions, setDimensions] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [zonePreview, setZonePreview] = useState<OrderDraftPreview | null>(null);
@@ -142,19 +147,19 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
         payment_method: paymentMethod || undefined,
         shipping_method: shippingMethod || undefined,
         package_description: packageDescription.trim() || undefined,
-        weight_kg: weightKg.trim() ? Number(weightKg) : null,
-        package_weight_unit: packageWeightUnit,
+        package_type: packageType,
+        weight_lbs: weightLbs.trim() ? Number(weightLbs) : null,
         package_length: packageLength.trim() ? Number(packageLength) : null,
         package_width: packageWidth.trim() ? Number(packageWidth) : null,
         package_height: packageHeight.trim() ? Number(packageHeight) : null,
-        package_dimension_unit: packageDimensionUnit,
         dimensions: dimensions.trim() || undefined,
       });
       onCreated(order);
       setReceiverId("");
       setNotes("");
       setPackageDescription("");
-      setWeightKg("");
+      setPackageType("medium");
+      setWeightLbs("");
       setPackageLength("");
       setPackageWidth("");
       setPackageHeight("");
@@ -301,27 +306,31 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
           />
         </div>
         <div>
-          <Label>Weight</Label>
-          <div className="flex gap-2">
-            <Input
-              inputMode="decimal"
-              value={weightKg}
-              onChange={(e) => setWeightKg(e.target.value)}
-              placeholder="e.g. 5"
-              required
-            />
-            <Select
-              value={packageWeightUnit}
-              onChange={(e) => setPackageWeightUnit(e.target.value)}
-              className="w-24"
-            >
-              <option value="kg">kg</option>
-              <option value="lb">lb</option>
-            </Select>
-          </div>
+          <Label>Package type</Label>
+          <Select
+            value={packageType}
+            onChange={(e) => setPackageType(e.target.value as PackageType)}
+            required
+          >
+            {PACKAGE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {PACKAGE_TYPE_LABELS[type]}
+              </option>
+            ))}
+          </Select>
         </div>
         <div>
-          <Label>Length</Label>
+          <Label>Weight ({PRICING_UNITS.weight})</Label>
+          <Input
+            inputMode="decimal"
+            value={weightLbs}
+            onChange={(e) => setWeightLbs(e.target.value)}
+            placeholder="e.g. 10"
+            required
+          />
+        </div>
+        <div>
+          <Label>Length ({PRICING_UNITS.dimension})</Label>
           <Input
             inputMode="decimal"
             value={packageLength}
@@ -341,25 +350,14 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
           />
         </div>
         <div>
-          <Label>Height</Label>
-          <div className="flex gap-2">
-            <Input
-              inputMode="decimal"
-              value={packageHeight}
-              onChange={(e) => setPackageHeight(e.target.value)}
-              placeholder="e.g. 20"
-              required
-            />
-            <Select
-              value={packageDimensionUnit}
-              onChange={(e) => setPackageDimensionUnit(e.target.value)}
-              className="w-24"
-            >
-              <option value="m">m</option>
-              <option value="cm">cm</option>
-              <option value="in">in</option>
-            </Select>
-          </div>
+          <Label>Height ({PRICING_UNITS.dimension})</Label>
+          <Input
+            inputMode="decimal"
+            value={packageHeight}
+            onChange={(e) => setPackageHeight(e.target.value)}
+            placeholder="e.g. 20"
+            required
+          />
         </div>
       </div>
 

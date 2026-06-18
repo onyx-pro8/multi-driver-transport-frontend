@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   Boxes,
+  DollarSign,
   Inbox,
   Map,
   Package,
@@ -26,6 +27,12 @@ interface QuickAction {
 
 const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
   driver: [
+    {
+      label: "Quote requests",
+      description: "Respond to sender price requests on your segments",
+      href: "/quote-requests",
+      icon: DollarSign,
+    },
     {
       label: "Add driver zone",
       description: "Define coverage with H3 cells or a polygon",

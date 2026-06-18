@@ -18,6 +18,7 @@ import { listOrders } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
+import { OrderPackageEditor } from "@/components/orders/OrderPackageEditor";
 
 const STATUS_BADGE: Record<Order["status"], string> = {
   submitted:
@@ -38,10 +39,12 @@ export function RoutesPage() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const isSender = user?.role === "sender" || user?.role === "admin";
+  const isDriver = user?.role === "driver";
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [costRefreshKey, setCostRefreshKey] = useState(0);
   const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const refresh = useCallback(async () => {
@@ -110,8 +113,9 @@ export function RoutesPage() {
               Select an order
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Pick an order to compare possible delivery routes by estimated cost. Routes are
-              generated from connected transporter zones between pickup and destination.
+              {isDriver
+                ? "Pick an order to view routes and enter quotes for your segments."
+                : "Pick an order to compare possible delivery routes by estimated cost. Routes are generated from connected transporter zones between pickup and destination."}
             </p>
           </CardHeader>
           <CardContent>
@@ -138,7 +142,11 @@ export function RoutesPage() {
                 {orders.map((order) => {
                   const Icon = STATUS_ICON[order.status];
                   const isSelected = selectedOrderId === order.id;
-                  const counterparty = isSender ? order.receiver_name : order.sender_name;
+                  const counterparty = isSender
+                    ? order.receiver_name
+                    : isDriver
+                      ? `${order.sender_name} → ${order.receiver_name}`
+                      : order.sender_name;
                   return (
                     <button
                       key={order.id}
@@ -155,7 +163,7 @@ export function RoutesPage() {
                         <div>
                           <p className="font-medium">Order #{order.id}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {isSender ? "To" : "From"}: {counterparty}
+                            {isSender ? "To" : isDriver ? "Route" : "From"}: {counterparty}
                           </p>
                         </div>
                         <span
@@ -190,7 +198,29 @@ export function RoutesPage() {
         </Card>
 
         {selectedOrder ? (
-          <RouteCostComparison orderId={selectedOrder.id} onMessage={showMessage} />
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Package · Order #{selectedOrder.id}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <OrderPackageEditor
+                  order={selectedOrder}
+                  canEdit={isSender}
+                  onUpdated={(updated) => {
+                    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+                  }}
+                  onCostsRecalculated={() => setCostRefreshKey((k) => k + 1)}
+                  onMessage={(text, type) => showMessage(text, type)}
+                />
+              </CardContent>
+            </Card>
+            <RouteCostComparison
+              key={`${selectedOrder.id}-${costRefreshKey}`}
+              orderId={selectedOrder.id}
+              onMessage={showMessage}
+            />
+          </div>
         ) : !loading && orders.length > 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">

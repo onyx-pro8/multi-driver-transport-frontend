@@ -49,6 +49,8 @@ export interface HubTerminal {
   lng: number;
 }
 
+import type { PackageType } from "@/lib/pricing";
+
 export interface DriverZone {
   id: number;
   owner_user_id: number;
@@ -66,8 +68,9 @@ export interface DriverZone {
   departure_time: string | null;
   arrival_time: string | null;
   base_fee: number | null;
-  cost_per_h3_cell: number | null;
   cost_per_km: number | null;
+  cost_per_hour: number | null;
+  cost_per_h3_cell: number | null;
   cost_per_kg: number | null;
   cost_per_volume_unit: number | null;
   time_of_day_factor: number | null;
@@ -92,8 +95,9 @@ export interface CreateDriverZoneRequest {
   departure_time?: string | null;
   arrival_time?: string | null;
   base_fee?: number | null;
-  cost_per_h3_cell?: number | null;
   cost_per_km?: number | null;
+  cost_per_hour?: number | null;
+  cost_per_h3_cell?: number | null;
   cost_per_kg?: number | null;
   cost_per_volume_unit?: number | null;
   time_of_day_factor?: number | null;
@@ -115,8 +119,9 @@ export interface UpdateDriverZoneRequest {
   departure_time?: string | null;
   arrival_time?: string | null;
   base_fee?: number | null;
-  cost_per_h3_cell?: number | null;
   cost_per_km?: number | null;
+  cost_per_hour?: number | null;
+  cost_per_h3_cell?: number | null;
   cost_per_kg?: number | null;
   cost_per_volume_unit?: number | null;
   time_of_day_factor?: number | null;
@@ -163,7 +168,9 @@ export interface Order {
   payment_method: string;
   shipping_method: string;
   package_description: string;
-  weight_kg: number | null;
+  package_type: PackageType | null;
+  package_factor: number | null;
+  weight_lbs: number | null;
   package_weight_unit: string;
   package_length: number | null;
   package_width: number | null;
@@ -190,13 +197,46 @@ export interface CreateOrderRequest {
   payment_method?: string;
   shipping_method?: string;
   package_description?: string;
-  weight_kg?: number | null;
-  package_weight_unit?: string;
+  package_type: PackageType;
+  weight_lbs?: number | null;
   package_length?: number | null;
   package_width?: number | null;
   package_height?: number | null;
   package_dimension_unit?: string;
   dimensions?: string;
+}
+
+export interface UpdateOrderPackageRequest {
+  package_type?: PackageType;
+  weight_lbs?: number | null;
+  package_length?: number | null;
+  package_width?: number | null;
+  package_height?: number | null;
+  package_description?: string;
+  dimensions?: string;
+}
+
+export interface UpdateOrderPackageResponse {
+  order: Order;
+  route_cost_recalculated: boolean;
+}
+
+export interface PricingConfig {
+  booking_fee_rate: number;
+  land_speed_kmh: number;
+  units: {
+    weight: string;
+    dimension: string;
+    distance: string;
+    time: string;
+  };
+  land_distance_provider: "google" | "h3";
+  external_quote_configured: boolean;
+}
+
+export interface UpdatePricingConfigRequest {
+  booking_fee_rate?: number;
+  land_speed_kmh?: number;
 }
 
 export interface ReceiverSummary {
@@ -597,54 +637,23 @@ export function isOrderGraphZoneNode(
 }
 
 // --------------------------------------------------------------------------
-// Milestone 5 — transporter rate tables & route cost
+// Milestone 5 — route cost
 // --------------------------------------------------------------------------
 
-export type SegmentCostStatus = "calculated" | "manual" | "missing";
+export type SegmentCostStatus = "calculated" | "manual" | "missing" | "requested";
+export type SegmentCostSource = "calculated" | "manual" | "external";
 export type RouteCostStatus = "complete" | "partial" | "missing";
 
-export interface TransporterRateTable {
-  id: number;
-  transporter_id: number;
-  transporter_name?: string;
-  transport_method: TransportMode;
-  currency: Currency;
-  base_fee: number;
-  cost_per_h3_cell: number | null;
-  cost_per_km: number | null;
-  cost_per_kg: number | null;
-  cost_per_volume_unit: number | null;
-  time_of_day_factor: number | null;
-  minimum_fee: number | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateRateTableRequest {
-  transporter_id?: number;
-  transport_method: TransportMode;
-  currency?: Currency;
-  base_fee?: number;
-  cost_per_h3_cell?: number | null;
-  cost_per_km?: number | null;
-  cost_per_kg?: number | null;
-  cost_per_volume_unit?: number | null;
-  time_of_day_factor?: number | null;
-  minimum_fee?: number | null;
-  is_active?: boolean;
-}
-
-export type UpdateRateTableRequest = Partial<CreateRateTableRequest>;
-
 export interface SegmentCostBreakdown {
-  base_fee: number;
-  distance_cost: number;
-  weight_cost: number;
-  volume_cost: number;
-  time_factor_amount?: number;
-  subtotal_before_minimum?: number;
-  minimum_fee_applied?: boolean;
+  base_cost: number;
+  package_factor: number;
+  adjusted_base_cost: number;
+  travelling_cost: number;
+  waiting_cost: number;
+  sub_total: number;
+  booking_fee_rate: number;
+  booking_fee: number;
+  total_cost: number;
 }
 
 export interface RouteSegmentCost {
@@ -659,8 +668,12 @@ export interface RouteSegmentCost {
   transport_method: string;
   distance_h3_cells: number | null;
   distance_km: number | null;
+  time_hours: number | null;
+  package_factor: number | null;
   base_fee: number | null;
   distance_cost: number | null;
+  waiting_cost: number | null;
+  booking_fee: number | null;
   weight_cost: number | null;
   volume_cost: number | null;
   time_factor_amount: number | null;
@@ -668,6 +681,7 @@ export interface RouteSegmentCost {
   manual_cost: number | null;
   final_cost: number | null;
   cost_status: SegmentCostStatus;
+  cost_source: SegmentCostSource | null;
   currency: string;
   breakdown: SegmentCostBreakdown | null;
 }
@@ -682,6 +696,7 @@ export interface RouteCostSummary {
   total_manual_cost: number | null;
   total_final_cost: number | null;
   missing_segment_count: number;
+  requested_segment_count: number;
   currency: string;
   status: RouteCostStatus;
   segments: RouteSegmentCost[];
@@ -690,5 +705,24 @@ export interface RouteCostSummary {
 export interface OrderRouteCostComparison {
   order_id: number;
   currency: string;
+  booking_fee_rate: number;
+  package_type: PackageType | null;
+  package_factor: number | null;
+  package_weight_lbs: number | null;
+  package_dimensions_in: string | null;
   routes: RouteCostSummary[];
+}
+
+export interface TransporterQuoteRequest {
+  order_id: number;
+  order_status: string;
+  sender_address: string;
+  destination_address: string;
+  package_type: PackageType | null;
+  package_weight_lbs: number | null;
+  package_dimensions_in: string | null;
+  route_id: number;
+  route_label: string;
+  segment: RouteSegmentCost;
+  updated_at: string;
 }

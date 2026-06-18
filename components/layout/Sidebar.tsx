@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import {
   Boxes,
+  DollarSign,
   Home,
   Inbox,
   Map,
@@ -46,6 +47,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "Workspace",
     items: [
       { label: "Driver Zones", href: "/driver-zones", icon: Shapes, roles: ["driver", "admin"] },
+      { label: "Quote requests", href: "/quote-requests", icon: DollarSign, roles: ["driver", "admin"] },
       { label: "Orders", href: "/orders", icon: Package, roles: ["sender", "receiver", "admin"] },
       { label: "Transporters", href: "/drivers", icon: Truck, roles: ["sender", "receiver", "admin"] },
       { label: "Receivers", href: "/receivers", icon: Inbox, roles: ["sender", "admin"] },
@@ -58,7 +60,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Zone Connections", href: "/zone-connections", icon: Workflow, roles: ["driver", "admin"] },
       { label: "Driver-Zone Graph", href: "/driver-zone-graph", icon: Network, roles: ["driver", "admin"] },
       { label: "Cells", href: "/h3-cells", icon: Boxes, roles: ["driver", "admin"] },
-      { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "receiver", "admin"] },
+      { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "receiver", "admin", "driver"] },
     ],
   },
   {

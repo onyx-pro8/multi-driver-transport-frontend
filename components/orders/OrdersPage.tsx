@@ -10,6 +10,7 @@ import { cn, formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { NewOrderForm } from "./NewOrderForm";
 import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
+import { OrderPackageEditor } from "@/components/orders/OrderPackageEditor";
 
 const STATUS_BADGE: Record<Order["status"], string> = {
   submitted:
@@ -36,6 +37,7 @@ export function OrdersPage() {
   const [updating, setUpdating] = useState<number | null>(null);
   const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [costRefreshKey, setCostRefreshKey] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -221,7 +223,29 @@ export function OrdersPage() {
         </Card>
 
         {selectedOrder && (
-          <OrderPossibleRoutes order={selectedOrder} onMessage={showMessage} />
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Package details · Order #{selectedOrder.id}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <OrderPackageEditor
+                  order={selectedOrder}
+                  canEdit={isSender}
+                  onUpdated={(updated) => {
+                    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+                  }}
+                  onCostsRecalculated={() => setCostRefreshKey((k) => k + 1)}
+                  onMessage={(text, type) => showMessage(text, type)}
+                />
+              </CardContent>
+            </Card>
+            <OrderPossibleRoutes
+              key={`routes-${selectedOrder.id}-${costRefreshKey}`}
+              order={selectedOrder}
+              onMessage={showMessage}
+            />
+          </div>
         )}
       </div>
     </>

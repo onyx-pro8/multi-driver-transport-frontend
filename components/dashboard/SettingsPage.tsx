@@ -17,6 +17,7 @@ import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RoleBadge } from "@/components/ui/RoleBadge";
+import { PricingSettingsCard } from "@/components/dashboard/PricingSettingsCard";
 import { formatDate, userInitials } from "@/lib/utils";
 
 export function SettingsPage() {
@@ -133,6 +134,17 @@ export function SettingsPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            {user.role === "admin" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Pricing engine</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PricingSettingsCard />
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>

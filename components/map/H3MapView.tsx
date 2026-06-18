@@ -1215,8 +1215,20 @@ function ZoneTooltipBody({ zone, color }: { zone: DriverZone; color: string }) {
         </div>
       )}
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-        <span className="text-muted-foreground">Base fee</span>
+        <span className="text-muted-foreground">Base cost</span>
         <span className="font-medium text-right">{rateLabel}</span>
+        <span className="text-muted-foreground">Per km</span>
+        <span className="font-medium text-right">
+          {zone.cost_per_km != null
+            ? formatCurrency(Number(zone.cost_per_km), zone.currency)
+            : "—"}
+        </span>
+        <span className="text-muted-foreground">Per hr</span>
+        <span className="font-medium text-right">
+          {zone.cost_per_hour != null
+            ? formatCurrency(Number(zone.cost_per_hour), zone.currency)
+            : "—"}
+        </span>
         <span className="text-muted-foreground">Available</span>
         <span
           className={`font-medium text-right ${

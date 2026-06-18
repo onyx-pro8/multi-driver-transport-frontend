@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { createDriverZone, updateDriverZone } from "@/lib/api";
+import { createDriverZone, getPricingConfig, updateDriverZone } from "@/lib/api";
 import {
   chooseResolutionForArea,
   estimateCellCount,
@@ -19,6 +19,7 @@ import {
   polygonAreaKm2,
 } from "@/lib/geo";
 import { cn, currencyLabel } from "@/lib/utils";
+import { DEFAULT_BOOKING_FEE_RATE, formatBookingFeePercent } from "@/lib/pricing";
 import { isHubMode, type HubRole } from "@/lib/transportMode";
 import { isLikelyWater, reverseGeocode } from "@/lib/places";
 import { AddressSearchInput, type SelectedPlace } from "@/components/ui/AddressSearchInput";
@@ -67,12 +68,13 @@ function parseManualCells(text: string): string[] {
 
 interface ZoneRateInput {
   base_fee: number | null;
-  cost_per_h3_cell: number | null;
   cost_per_km: number | null;
-  cost_per_kg: number | null;
-  cost_per_volume_unit: number | null;
-  time_of_day_factor: number | null;
-  minimum_fee: number | null;
+  cost_per_hour: number | null;
+  cost_per_h3_cell: null;
+  cost_per_kg: null;
+  cost_per_volume_unit: null;
+  time_of_day_factor: null;
+  minimum_fee: null;
 }
 
 /** Stored rate value → input string ("" when unset). */
@@ -122,13 +124,10 @@ export function AddDriverZoneForm({
   const [transportMode, setTransportMode] = useState<TransportMode>("land");
   // Milestone 5 — detailed per-zone pricing. Empty string means "not set".
   const [baseFee, setBaseFee] = useState("");
-  const [costPerH3Cell, setCostPerH3Cell] = useState("");
   const [costPerKm, setCostPerKm] = useState("");
-  const [costPerKg, setCostPerKg] = useState("");
-  const [costPerVolumeUnit, setCostPerVolumeUnit] = useState("");
-  const [timeOfDayFactor, setTimeOfDayFactor] = useState("");
-  const [minimumFee, setMinimumFee] = useState("");
+  const [costPerHour, setCostPerHour] = useState("");
   const [currency, setCurrency] = useState<Currency>("USD");
+  const [bookingFeeRate, setBookingFeeRate] = useState(DEFAULT_BOOKING_FEE_RATE);
   const [available, setAvailable] = useState(true);
   const [trustForwarder, setTrustForwarder] = useState(false);
   const [manualText, setManualText] = useState("");
@@ -171,6 +170,12 @@ export function AddDriverZoneForm({
   }, [isHubRoute, departureHub, arrivalHub]);
 
   useEffect(() => {
+    getPricingConfig()
+      .then((cfg) => setBookingFeeRate(cfg.booking_fee_rate))
+      .catch(() => setBookingFeeRate(DEFAULT_BOOKING_FEE_RATE));
+  }, []);
+
+  useEffect(() => {
     if (editingZone) {
       setDriverName(editingZone.driver_name);
       setZoneName(editingZone.zone_name);
@@ -179,12 +184,8 @@ export function AddDriverZoneForm({
       setManualText(editingZone.h3_cells.join("\n"));
       setTransportMode(editingZone.transport_mode ?? "land");
       setBaseFee(rateToInput(editingZone.base_fee));
-      setCostPerH3Cell(rateToInput(editingZone.cost_per_h3_cell));
       setCostPerKm(rateToInput(editingZone.cost_per_km));
-      setCostPerKg(rateToInput(editingZone.cost_per_kg));
-      setCostPerVolumeUnit(rateToInput(editingZone.cost_per_volume_unit));
-      setTimeOfDayFactor(rateToInput(editingZone.time_of_day_factor));
-      setMinimumFee(rateToInput(editingZone.minimum_fee));
+      setCostPerHour(rateToInput(editingZone.cost_per_hour));
       setCurrency(editingZone.currency ?? "USD");
       setAvailable(editingZone.available ?? true);
       setTrustForwarder(editingZone.trust_payment_forwarder ?? false);
@@ -335,12 +336,8 @@ export function AddDriverZoneForm({
     setManualText("");
     setTransportMode("land");
     setBaseFee("");
-    setCostPerH3Cell("");
     setCostPerKm("");
-    setCostPerKg("");
-    setCostPerVolumeUnit("");
-    setTimeOfDayFactor("");
-    setMinimumFee("");
+    setCostPerHour("");
     setCurrency("USD");
     setAvailable(true);
     setTrustForwarder(false);
@@ -384,25 +381,18 @@ export function AddDriverZoneForm({
     let rateFields: ZoneRateInput;
     try {
       rateFields = {
-        base_fee: parseOptionalRate(baseFee, "Base fee"),
-        cost_per_h3_cell: parseOptionalRate(costPerH3Cell, "Cost per H3 cell"),
+        base_fee: parseOptionalRate(baseFee, "Base cost"),
         cost_per_km: parseOptionalRate(costPerKm, "Cost per km"),
-        cost_per_kg: parseOptionalRate(costPerKg, "Cost per kg"),
-        cost_per_volume_unit: parseOptionalRate(costPerVolumeUnit, "Cost per volume unit"),
-        time_of_day_factor: parseOptionalRate(timeOfDayFactor, "Time-of-day factor"),
-        minimum_fee: parseOptionalRate(minimumFee, "Minimum fee"),
+        cost_per_hour: parseOptionalRate(costPerHour, "Cost per hour"),
+        cost_per_h3_cell: null,
+        cost_per_kg: null,
+        cost_per_volume_unit: null,
+        time_of_day_factor: null,
+        minimum_fee: null,
       };
     } catch (err) {
       onMessage(err instanceof Error ? err.message : "Invalid rate value.", "error");
       return;
-    }
-
-    // Land zones are priced per H3 cell; air/sea (line) zones per km. Drop the
-    // field that doesn't apply to the chosen transport type.
-    if (isHubRoute) {
-      rateFields.cost_per_h3_cell = null;
-    } else {
-      rateFields.cost_per_km = null;
     }
 
     const finalZoneName = zoneName.trim() || `${driverName.trim()} Zone`;
@@ -602,11 +592,10 @@ export function AddDriverZoneForm({
                   <div>
                     <Label>Pricing rules</Label>
                     <p className="text-xs text-muted-foreground">
-                      {isHubRoute
-                        ? "Air/sea legs are a line between terminals — priced per km of the route."
-                        : "Land zones are made of H3 cells — priced per cell."}{" "}
-                      Leave all blank to mark the segment as “missing cost” (manual
-                      entry required at route time).
+                      Base cost, travel rate (per km), and wage (per hour). Used in:
+                      (base × package factor) + travel + waiting +{" "}
+                      {formatBookingFeePercent(bookingFeeRate)} booking fee.
+                      Air segments always require a manual quote at route time.
                     </p>
                   </div>
                   <Select
@@ -637,7 +626,7 @@ export function AddDriverZoneForm({
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs">Base fee</Label>
+                    <Label className="text-xs">Base cost</Label>
                     <Input
                       inputMode="decimal"
                       placeholder="e.g. 20"
@@ -645,61 +634,22 @@ export function AddDriverZoneForm({
                       onChange={(e) => setBaseFee(e.target.value)}
                     />
                   </div>
-                  {isHubRoute ? (
-                    <div>
-                      <Label className="text-xs">Cost per km</Label>
-                      <Input
-                        inputMode="decimal"
-                        placeholder="e.g. 1.5"
-                        value={costPerKm}
-                        onChange={(e) => setCostPerKm(e.target.value)}
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <Label className="text-xs">Cost per H3 cell</Label>
-                      <Input
-                        inputMode="decimal"
-                        placeholder="e.g. 2"
-                        value={costPerH3Cell}
-                        onChange={(e) => setCostPerH3Cell(e.target.value)}
-                      />
-                    </div>
-                  )}
                   <div>
-                    <Label className="text-xs">Cost per kg</Label>
+                    <Label className="text-xs">Cost per km</Label>
                     <Input
                       inputMode="decimal"
-                      placeholder="e.g. 1"
-                      value={costPerKg}
-                      onChange={(e) => setCostPerKg(e.target.value)}
+                      placeholder="e.g. 1.5"
+                      value={costPerKm}
+                      onChange={(e) => setCostPerKm(e.target.value)}
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Cost per volume unit</Label>
+                    <Label className="text-xs">Cost per hour (wage)</Label>
                     <Input
                       inputMode="decimal"
-                      placeholder="e.g. 0.05"
-                      value={costPerVolumeUnit}
-                      onChange={(e) => setCostPerVolumeUnit(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Time-of-day factor</Label>
-                    <Input
-                      inputMode="decimal"
-                      placeholder="e.g. 1.2"
-                      value={timeOfDayFactor}
-                      onChange={(e) => setTimeOfDayFactor(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Minimum fee</Label>
-                    <Input
-                      inputMode="decimal"
-                      placeholder="e.g. 10"
-                      value={minimumFee}
-                      onChange={(e) => setMinimumFee(e.target.value)}
+                      placeholder="e.g. 25"
+                      value={costPerHour}
+                      onChange={(e) => setCostPerHour(e.target.value)}
                     />
                   </div>
                 </div>

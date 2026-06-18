@@ -14,13 +14,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  applyExternalSegmentCost,
   applyManualSegmentCost,
+  fetchExternalSegmentQuote,
   getOrderRouteCostComparison,
+  getPricingConfig,
   recalculateOrderCosts,
+  requestSegmentQuote,
 } from "@/lib/api";
+import { OrderPackageSummary } from "@/components/orders/OrderPackageSummary";
 import { cn, formatCurrency } from "@/lib/utils";
+import { formatBookingFeePercent } from "@/lib/pricing";
 import type {
   OrderRouteCostComparison,
+  PricingConfig,
   RouteCostStatus,
   RouteCostSummary,
   RouteSegmentCost,
@@ -40,6 +47,7 @@ const SEGMENT_STATUS: Record<SegmentCostStatus, string> = {
   calculated: "Calculated",
   manual: "Manual Cost",
   missing: "Missing Cost",
+  requested: "Cost Requested",
 };
 
 interface Props {
@@ -50,12 +58,20 @@ interface Props {
 export function RouteCostComparison({ orderId, onMessage }: Props) {
   const { user } = useAuth();
   const canEnterManual = user?.role === "admin" || user?.role === "driver";
+  const canRequestQuote =
+    user?.role === "admin" || user?.role === "sender" || user?.role === "receiver";
+  const canRecalculate =
+    user?.role === "admin" || user?.role === "sender" || user?.role === "receiver";
   const [data, setData] = useState<OrderRouteCostComparison | null>(null);
   const [loading, setLoading] = useState(true);
   const [recalculating, setRecalculating] = useState(false);
   const [expandedRouteId, setExpandedRouteId] = useState<number | null>(null);
   const [manualInputs, setManualInputs] = useState<Record<number, string>>({});
   const [savingSegment, setSavingSegment] = useState<number | null>(null);
+  const [savingExternal, setSavingExternal] = useState<number | null>(null);
+  const [requestingQuote, setRequestingQuote] = useState<number | null>(null);
+  const [fetchingExternal, setFetchingExternal] = useState<number | null>(null);
+  const [pricingConfig, setPricingConfig] = useState<PricingConfig | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,6 +89,12 @@ export function RouteCostComparison({ orderId, onMessage }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    getPricingConfig()
+      .then(setPricingConfig)
+      .catch(() => setPricingConfig(null));
+  }, []);
 
   async function handleRecalculate() {
     setRecalculating(true);
@@ -106,6 +128,51 @@ export function RouteCostComparison({ orderId, onMessage }: Props) {
     }
   }
 
+  async function handleExternalSave(segment: RouteSegmentCost) {
+    const raw = manualInputs[segment.segment_id] ?? "";
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) {
+      onMessage?.("Enter a valid cost >= 0", "error");
+      return;
+    }
+    setSavingExternal(segment.segment_id);
+    try {
+      await applyExternalSegmentCost(segment.segment_id, value);
+      await load();
+      onMessage?.("External quote saved.");
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : "Failed to save external quote", "error");
+    } finally {
+      setSavingExternal(null);
+    }
+  }
+
+  async function handleRequestQuote(segment: RouteSegmentCost) {
+    setRequestingQuote(segment.segment_id);
+    try {
+      await requestSegmentQuote(segment.segment_id);
+      await load();
+      onMessage?.("Quote requested for this segment.");
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : "Failed to request quote", "error");
+    } finally {
+      setRequestingQuote(null);
+    }
+  }
+
+  async function handleFetchExternal(segment: RouteSegmentCost) {
+    setFetchingExternal(segment.segment_id);
+    try {
+      await fetchExternalSegmentQuote(segment.segment_id);
+      await load();
+      onMessage?.("External quote fetched and applied.");
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : "Failed to fetch external quote", "error");
+    } finally {
+      setFetchingExternal(null);
+    }
+  }
+
   if (loading) {
     return (
       <Card>
@@ -126,7 +193,11 @@ export function RouteCostComparison({ orderId, onMessage }: Props) {
             Route Cost Comparison
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Compare possible routes by estimated segment and total cost. No payment is processed.
+            Pricing engine: (base × package factor) + travel + waiting + booking fee
+            {data ? ` (${formatBookingFeePercent(data.booking_fee_rate)})` : ""}.
+            Land distance uses{" "}
+            {pricingConfig?.land_distance_provider === "google" ? "Google road routing" : "H3 estimate"}.
+            Air segments always require a requested/manual cost.
           </p>
         </div>
         <Button
@@ -134,7 +205,8 @@ export function RouteCostComparison({ orderId, onMessage }: Props) {
           size="sm"
           variant="outline"
           onClick={handleRecalculate}
-          disabled={recalculating}
+          disabled={recalculating || !canRecalculate}
+          className={canRecalculate ? undefined : "hidden"}
         >
           {recalculating ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -145,6 +217,25 @@ export function RouteCostComparison({ orderId, onMessage }: Props) {
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
+        {data && (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Booking fee: {formatBookingFeePercent(data.booking_fee_rate)} on each segment sub-total
+            </p>
+            <OrderPackageSummary
+              order={{
+                package_type: data.package_type,
+                package_factor: data.package_factor,
+                weight_lbs: data.package_weight_lbs,
+                package_length: null,
+                package_width: null,
+                package_height: null,
+                dimensions: data.package_dimensions_in ?? "",
+                package_description: "",
+              }}
+            />
+          </div>
+        )}
         {!data || data.routes.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No complete routes found for this order. Ensure pickup and destination are covered by
@@ -160,12 +251,20 @@ export function RouteCostComparison({ orderId, onMessage }: Props) {
                 setExpandedRouteId((prev) => (prev === route.route_id ? null : route.route_id))
               }
               canEnterManual={canEnterManual}
+              canRequestQuote={canRequestQuote}
               manualInputs={manualInputs}
               onManualInputChange={(id, val) =>
                 setManualInputs((prev) => ({ ...prev, [id]: val }))
               }
               onManualSave={handleManualSave}
+              onExternalSave={handleExternalSave}
+              onRequestQuote={handleRequestQuote}
+              onFetchExternal={handleFetchExternal}
+              externalQuoteConfigured={pricingConfig?.external_quote_configured ?? false}
               savingSegment={savingSegment}
+              savingExternal={savingExternal}
+              requestingQuote={requestingQuote}
+              fetchingExternal={fetchingExternal}
               userId={user?.id}
               userRole={user?.role}
             />
@@ -181,10 +280,18 @@ function RouteCard({
   expanded,
   onToggle,
   canEnterManual,
+  canRequestQuote,
   manualInputs,
   onManualInputChange,
   onManualSave,
+  onExternalSave,
+  onRequestQuote,
+  onFetchExternal,
+  externalQuoteConfigured,
   savingSegment,
+  savingExternal,
+  requestingQuote,
+  fetchingExternal,
   userId,
   userRole,
 }: {
@@ -192,14 +299,24 @@ function RouteCard({
   expanded: boolean;
   onToggle: () => void;
   canEnterManual: boolean;
+  canRequestQuote: boolean;
+  externalQuoteConfigured: boolean;
   manualInputs: Record<number, string>;
   onManualInputChange: (id: number, val: string) => void;
   onManualSave: (seg: RouteSegmentCost) => void;
+  onExternalSave: (seg: RouteSegmentCost) => void;
+  onRequestQuote: (seg: RouteSegmentCost) => void;
+  onFetchExternal: (seg: RouteSegmentCost) => void;
   savingSegment: number | null;
+  savingExternal: number | null;
+  requestingQuote: number | null;
+  fetchingExternal: number | null;
   userId?: number;
   userRole?: string;
 }) {
-  const hasMissing = route.missing_segment_count > 0;
+  const pendingCount =
+    route.missing_segment_count + (route.requested_segment_count ?? 0);
+  const hasPending = pendingCount > 0;
   const costLabel =
     route.total_final_cost != null
       ? formatCurrency(route.total_final_cost, route.currency)
@@ -220,7 +337,7 @@ function RouteCard({
               {route.status === "complete"
                 ? "Complete"
                 : route.status === "partial"
-                  ? `Partial · ${route.missing_segment_count} missing`
+                  ? `Partial · ${pendingCount} pending`
                   : "Missing Cost"}
             </span>
           </div>
@@ -255,17 +372,16 @@ function RouteCard({
         </div>
       </div>
 
-      {hasMissing && (
+      {hasPending && userRole !== "driver" && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          Some segment costs are missing. Manual cost entry is required before this route can be
-          fully compared.
+          Some segments need a cost (air always requires a quote; sea/land may be missing rates).
         </div>
       )}
 
       {expanded && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-xs">
+          <table className="w-full min-w-[1100px] text-xs">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
                 <th className="py-2 pr-2">#</th>
@@ -274,10 +390,12 @@ function RouteCard({
                 <th className="py-2 pr-2">Transporter</th>
                 <th className="py-2 pr-2">Method</th>
                 <th className="py-2 pr-2">Distance</th>
+                <th className="py-2 pr-2">Time</th>
+                <th className="py-2 pr-2">Pkg factor</th>
                 <th className="py-2 pr-2">Base</th>
-                <th className="py-2 pr-2">Dist. cost</th>
-                <th className="py-2 pr-2">Weight</th>
-                <th className="py-2 pr-2">Volume</th>
+                <th className="py-2 pr-2">Travel</th>
+                <th className="py-2 pr-2">Waiting</th>
+                <th className="py-2 pr-2">Booking</th>
                 <th className="py-2 pr-2">Manual</th>
                 <th className="py-2 pr-2">Final</th>
                 <th className="py-2">Status</th>
@@ -285,10 +403,25 @@ function RouteCard({
             </thead>
             <tbody>
               {route.segments.map((seg) => {
-                const canEditThis =
+                const needsEntry =
+                  seg.cost_status === "missing" || seg.cost_status === "requested";
+                const ownsSegment = userRole === "admin" || seg.transporter_id === userId;
+                const canOverride =
                   canEnterManual &&
-                  seg.cost_status === "missing" &&
-                  (userRole === "admin" || seg.transporter_id === userId);
+                  ownsSegment &&
+                  (needsEntry || seg.cost_status === "calculated");
+                const showExternal =
+                  canOverride &&
+                  (seg.transport_method === "air" || seg.cost_status === "requested");
+                const showFetchExternal =
+                  externalQuoteConfigured &&
+                  canRequestQuote &&
+                  needsEntry &&
+                  seg.cost_status !== "manual";
+                const showRequestQuote =
+                  canRequestQuote &&
+                  (seg.cost_status === "calculated" || seg.cost_status === "missing") &&
+                  seg.transport_method !== "air";
                 return (
                   <tr key={seg.segment_id} className="border-b border-border/50 last:border-0">
                     <td className="py-2 pr-2">{seg.segment_index + 1}</td>
@@ -297,16 +430,20 @@ function RouteCard({
                     <td className="py-2 pr-2">{seg.transporter_name}</td>
                     <td className="py-2 pr-2 capitalize">{seg.transport_method}</td>
                     <td className="py-2 pr-2 whitespace-nowrap">
-                      {seg.transport_method === "air" || seg.transport_method === "sea"
-                        ? seg.distance_km != null
-                          ? `${seg.distance_km} km`
-                          : "—"
-                        : seg.distance_h3_cells != null
-                          ? `${seg.distance_h3_cells} ${seg.distance_h3_cells === 1 ? "cell" : "cells"}`
-                          : "—"}
+                      {seg.distance_km != null ? `${seg.distance_km} km` : "—"}
+                    </td>
+                    <td className="py-2 pr-2 whitespace-nowrap">
+                      {seg.time_hours != null ? `${seg.time_hours} hr` : "—"}
                     </td>
                     <td className="py-2 pr-2">
-                      {seg.base_fee != null ? formatCurrency(seg.base_fee, seg.currency) : "—"}
+                      {seg.package_factor != null ? seg.package_factor : "—"}
+                    </td>
+                    <td className="py-2 pr-2">
+                      {seg.breakdown?.adjusted_base_cost != null
+                        ? formatCurrency(seg.breakdown.adjusted_base_cost, seg.currency)
+                        : seg.base_fee != null
+                          ? formatCurrency(seg.base_fee, seg.currency)
+                          : "—"}
                     </td>
                     <td className="py-2 pr-2">
                       {seg.distance_cost != null
@@ -314,37 +451,70 @@ function RouteCard({
                         : "—"}
                     </td>
                     <td className="py-2 pr-2">
-                      {seg.weight_cost != null
-                        ? formatCurrency(seg.weight_cost, seg.currency)
+                      {seg.waiting_cost != null
+                        ? formatCurrency(seg.waiting_cost, seg.currency)
                         : "—"}
                     </td>
                     <td className="py-2 pr-2">
-                      {seg.volume_cost != null
-                        ? formatCurrency(seg.volume_cost, seg.currency)
+                      {seg.booking_fee != null
+                        ? formatCurrency(seg.booking_fee, seg.currency)
                         : "—"}
                     </td>
                     <td className="py-2 pr-2">
-                      {canEditThis ? (
-                        <div className="flex items-center gap-1">
-                          <Input
-                            className="h-7 w-20 text-xs"
-                            inputMode="decimal"
-                            placeholder="0.00"
-                            value={manualInputs[seg.segment_id] ?? ""}
-                            onChange={(e) => onManualInputChange(seg.segment_id, e.target.value)}
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={savingSegment === seg.segment_id}
-                            onClick={() => onManualSave(seg)}
-                          >
-                            Save
-                          </Button>
+                      {canOverride ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <Input
+                              className="h-7 w-20 text-xs"
+                              inputMode="decimal"
+                              placeholder="0.00"
+                              value={manualInputs[seg.segment_id] ?? ""}
+                              onChange={(e) => onManualInputChange(seg.segment_id, e.target.value)}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={savingSegment === seg.segment_id}
+                              onClick={() => onManualSave(seg)}
+                            >
+                              {seg.cost_status === "calculated" ? "Override" : "Save"}
+                            </Button>
+                          </div>
+                          {showExternal && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[10px]"
+                              disabled={savingExternal === seg.segment_id}
+                              onClick={() => onExternalSave(seg)}
+                            >
+                              Save external quote
+                            </Button>
+                          )}
+                          {showFetchExternal && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 px-2 text-[10px]"
+                              disabled={fetchingExternal === seg.segment_id}
+                              onClick={() => onFetchExternal(seg)}
+                            >
+                              {fetchingExternal === seg.segment_id
+                                ? "Fetching…"
+                                : "Fetch from quote API"}
+                            </Button>
+                          )}
                         </div>
                       ) : seg.manual_cost != null ? (
-                        formatCurrency(seg.manual_cost, seg.currency)
+                        <span>
+                          {formatCurrency(seg.manual_cost, seg.currency)}
+                          {seg.cost_source === "external" ? (
+                            <span className="ml-1 text-[10px] text-muted-foreground">(ext)</span>
+                          ) : null}
+                        </span>
                       ) : (
                         "—"
                       )}
@@ -352,19 +522,36 @@ function RouteCard({
                     <td className="py-2 pr-2 font-medium">
                       {seg.final_cost != null
                         ? formatCurrency(seg.final_cost, seg.currency)
-                        : "Missing Cost"}
+                        : seg.cost_status === "requested"
+                          ? "Cost requested"
+                          : "Missing Cost"}
                     </td>
                     <td className="py-2">
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                          seg.cost_status === "calculated" && "bg-green-500/10 text-green-700",
-                          seg.cost_status === "manual" && "bg-blue-500/10 text-blue-700",
-                          seg.cost_status === "missing" && "bg-red-500/10 text-red-700"
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-medium w-fit",
+                            seg.cost_status === "calculated" && "bg-green-500/10 text-green-700",
+                            seg.cost_status === "manual" && "bg-blue-500/10 text-blue-700",
+                            seg.cost_status === "missing" && "bg-red-500/10 text-red-700",
+                            seg.cost_status === "requested" && "bg-purple-500/10 text-purple-700"
+                          )}
+                        >
+                          {SEGMENT_STATUS[seg.cost_status]}
+                        </span>
+                        {showRequestQuote && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[10px]"
+                            disabled={requestingQuote === seg.segment_id}
+                            onClick={() => onRequestQuote(seg)}
+                          >
+                            {requestingQuote === seg.segment_id ? "Requesting…" : "Request quote"}
+                          </Button>
                         )}
-                      >
-                        {SEGMENT_STATUS[seg.cost_status]}
-                      </span>
+                      </div>
                     </td>
                   </tr>
                 );
