@@ -29,7 +29,7 @@ export function ConfirmationsPage() {
       if (!hasDataRef.current) {
         showToast(
           err instanceof Error ? err.message : "Failed to load confirmations",
-          "error"
+          "error",
         );
       }
     } finally {
@@ -118,7 +118,9 @@ function TabButton({
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors",
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:text-foreground",
       )}
     >
       {icon}
@@ -127,7 +129,9 @@ function TabButton({
         <span
           className={cn(
             "ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-            active ? "bg-primary-foreground/20" : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+            active
+              ? "bg-primary-foreground/20"
+              : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
           )}
         >
           {badge}

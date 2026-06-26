@@ -40,7 +40,8 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryLat, setDeliveryLat] = useState("");
   const [deliveryLng, setDeliveryLng] = useState("");
-  const [deliveryPrimedForReceiver, setDeliveryPrimedForReceiver] = useState<string>("");
+  const [deliveryPrimedForReceiver, setDeliveryPrimedForReceiver] =
+    useState<string>("");
   const [notes, setNotes] = useState("");
   // Milestone 1 (updated scope) — basic order form fields.
   const [sourceName, setSourceName] = useState("");
@@ -52,7 +53,9 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
     packageFormEntryFromOrder(defaultOrderPackageEntry()),
   ]);
   const [submitting, setSubmitting] = useState(false);
-  const [zonePreview, setZonePreview] = useState<OrderDraftPreview | null>(null);
+  const [zonePreview, setZonePreview] = useState<OrderDraftPreview | null>(
+    null,
+  );
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const profilePrimed = useRef(false);
@@ -71,13 +74,16 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
     listReceivers()
       .then(setReceivers)
       .catch((err) =>
-        onMessage(err instanceof Error ? err.message : "Failed to load receivers", "error")
+        onMessage(
+          err instanceof Error ? err.message : "Failed to load receivers",
+          "error",
+        ),
       );
   }, [onMessage]);
 
   const selectedReceiver = useMemo(
     () => receivers.find((r) => String(r.id) === receiverId) ?? null,
-    [receivers, receiverId]
+    [receivers, receiverId],
   );
 
   useEffect(() => {
@@ -92,8 +98,12 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
     setReceiverBillingAddress(selectedReceiver.address ?? "");
     if (deliveryPrimedForReceiver !== receiverId) {
       setDeliveryAddress(selectedReceiver.address ?? "");
-      setDeliveryLat(selectedReceiver.lat != null ? String(selectedReceiver.lat) : "");
-      setDeliveryLng(selectedReceiver.lng != null ? String(selectedReceiver.lng) : "");
+      setDeliveryLat(
+        selectedReceiver.lat != null ? String(selectedReceiver.lat) : "",
+      );
+      setDeliveryLng(
+        selectedReceiver.lng != null ? String(selectedReceiver.lng) : "",
+      );
       setDeliveryPrimedForReceiver(receiverId);
     }
   }, [selectedReceiver, receiverId, deliveryPrimedForReceiver]);
@@ -141,7 +151,9 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
     } catch (err) {
       setZonePreview(null);
       setPreviewError(
-        err instanceof Error ? err.message : "Failed to load zone connection preview"
+        err instanceof Error
+          ? err.message
+          : "Failed to load zone connection preview",
       );
     } finally {
       setPreviewLoading(false);
@@ -185,7 +197,10 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
       setPackageDescription("");
       setPackages([packageFormEntryFromOrder(defaultOrderPackageEntry())]);
     } catch (err) {
-      onMessage(err instanceof Error ? err.message : "Failed to create order", "error");
+      onMessage(
+        err instanceof Error ? err.message : "Failed to create order",
+        "error",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -196,7 +211,11 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <Label>Destination receiver</Label>
-          <Select value={receiverId} onChange={(e) => setReceiverId(e.target.value)} required>
+          <Select
+            value={receiverId}
+            onChange={(e) => setReceiverId(e.target.value)}
+            required
+          >
             <option value="" disabled>
               Select a receiver…
             </option>
@@ -209,7 +228,11 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
         </div>
         <div>
           <Label>Receiver phone (auto)</Label>
-          <Input value={selectedReceiver?.phone ?? ""} readOnly placeholder="Pick a receiver above" />
+          <Input
+            value={selectedReceiver?.phone ?? ""}
+            readOnly
+            placeholder="Pick a receiver above"
+          />
         </div>
         <div className="md:col-span-2">
           <Label>Receiver billing address</Label>
@@ -292,7 +315,8 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
             }}
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Where the package is picked up — can differ from your billing address.
+            Where the package is picked up — can differ from your billing
+            address.
           </p>
         </div>
         <div>
@@ -334,7 +358,10 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
         </div>
         <div>
           <Label>Payment method</Label>
-          <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+          <Select
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+          >
             <option value="">Select…</option>
             <option value="cash">Cash</option>
             <option value="card">Card</option>
@@ -345,7 +372,10 @@ export function NewOrderForm({ onCreated, onMessage }: Props) {
         </div>
         <div>
           <Label>Shipping method</Label>
-          <Select value={shippingMethod} onChange={(e) => setShippingMethod(e.target.value)}>
+          <Select
+            value={shippingMethod}
+            onChange={(e) => setShippingMethod(e.target.value)}
+          >
             <option value="">Select…</option>
             <option value="standard">Standard</option>
             <option value="express">Express</option>
