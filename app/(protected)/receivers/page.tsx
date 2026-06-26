@@ -4,7 +4,7 @@ import { ReceiversPage } from "@/components/receivers/ReceiversPage";
 
 export default function Page() {
   return (
-    <RoleGuard allow={["sender", "admin"]}>
+    <RoleGuard allow={["admin"]}>
       <DashboardShell
         title="Receivers"
         subtitle="Browse registered receivers and use them when creating orders."

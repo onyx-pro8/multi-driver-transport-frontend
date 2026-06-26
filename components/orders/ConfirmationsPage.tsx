@@ -5,6 +5,7 @@ import { Loader2, Route, ShieldCheck } from "lucide-react";
 import { ConfirmationPanel } from "@/components/orders/ConfirmationPanel";
 import { TransporterOrdersPanel } from "@/components/orders/TransporterOrdersPanel";
 import { getTransporterConfirmations } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { TransporterConfirmationItem } from "@/types";
 
@@ -15,7 +16,6 @@ export function ConfirmationsPage() {
   const [items, setItems] = useState<TransporterConfirmationItem[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const hasDataRef = useRef(false);
-  const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent && !hasDataRef.current) {
@@ -27,10 +27,10 @@ export function ConfirmationsPage() {
       hasDataRef.current = true;
     } catch (err) {
       if (!hasDataRef.current) {
-        setBanner({
-          text: err instanceof Error ? err.message : "Failed to load confirmations",
-          type: "error",
-        });
+        showToast(
+          err instanceof Error ? err.message : "Failed to load confirmations",
+          "error"
+        );
       }
     } finally {
       setInitialLoading(false);
@@ -42,8 +42,7 @@ export function ConfirmationsPage() {
   }, [load]);
 
   function showMessage(text: string, type: "success" | "error" = "success") {
-    setBanner({ text, type });
-    setTimeout(() => setBanner(null), 4000);
+    showToast(text, type);
   }
 
   const pendingCount = items.filter((i) => i.status === "pending").length;
@@ -59,17 +58,6 @@ export function ConfirmationsPage() {
 
   return (
     <>
-      {banner && (
-        <div
-          className={`mx-6 mb-4 rounded-xl border px-4 py-3 text-sm ${
-            banner.type === "success"
-              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
-              : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
-          }`}
-        >
-          {banner.text}
-        </div>
-      )}
       <div className="px-6 pb-8 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">

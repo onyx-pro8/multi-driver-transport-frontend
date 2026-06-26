@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { previewZoneConnectionsByCoordinates } from "@/lib/api";
+import { previewOrderZoneConnections } from "@/lib/api";
 import type { Order, OrderDraftPreview } from "@/types";
 import { OrderDraftZonePreview } from "@/components/orders/OrderDraftZonePreview";
 
@@ -52,16 +52,7 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
       setError(null);
 
       try {
-        const result = await previewZoneConnectionsByCoordinates({
-          source_lat: order.sender_lat as number,
-          source_lng: order.sender_lng as number,
-          destination_lat: order.destination_lat as number,
-          destination_lng: order.destination_lng as number,
-          source_name: order.source_name || order.sender_name,
-          source_address: order.sender_address,
-          destination_name: order.receiver_name,
-          destination_address: order.destination_address,
-        });
+        const result = await previewOrderZoneConnections(order.id);
         setPreview(result);
         hasPreviewRef.current = true;
       } catch (err) {

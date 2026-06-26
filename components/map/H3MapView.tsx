@@ -17,6 +17,7 @@ import {
 import { useMapDefaultLocation } from "@/hooks/useMapDefaultLocation";
 import type { UserLocation } from "@/hooks/useUserGeolocation";
 import { cn } from "@/lib/utils";
+import type { RouteMapLeg } from "@/lib/orderRouteChain";
 import { formatCellCoords, zoneCentroid } from "@/lib/geo";
 import {
   isHubMode,
@@ -676,6 +677,14 @@ export interface H3MapViewProps {
    */
   routeSegments?: { lat: number; lng: number }[][] | null;
   /**
+   * Highlighted legs drawn on top of `routeSegments` (e.g. the transporter's
+   * priced segment). Sea legs follow maritime routing; air legs use flight-path
+   * styling; land legs follow handoff waypoints.
+   */
+  accentRouteLegs?: RouteMapLeg[] | null;
+  /** Hover label for `accentRouteLegs` (e.g. "Your segment"). */
+  accentRouteLabel?: string | null;
+  /**
    * Transfer/handoff markers for a selected route — pin each border
    * crossing with the transporter names on either side.
    */
@@ -754,6 +763,8 @@ export function H3MapView({
   transferCells = EMPTY_CELLS,
   adjacentPairs = EMPTY_ADJACENT,
   routeSegments = null,
+  accentRouteLegs = null,
+  accentRouteLabel = null,
   handoffMarkers = EMPTY_HANDOFF,
   endpointLabels = null,
   showZoneTooltips,
@@ -1119,6 +1130,8 @@ export function H3MapView({
         transferCells={transferCells}
         adjacentPairs={adjacentPairs}
         routeSegments={routeSegments}
+        accentRouteLegs={accentRouteLegs}
+        accentRouteLabel={accentRouteLabel}
         handoffMarkers={handoffMarkers}
         focusHandoff={focusHandoff}
         onFocusHandoffDismiss={onFocusHandoffDismiss}
@@ -1157,6 +1170,8 @@ type H3MapLeafletProps = {
   transferCells: string[];
   adjacentPairs: H3MapAdjacentPair[];
   routeSegments: { lat: number; lng: number }[][] | null;
+  accentRouteLegs: RouteMapLeg[] | null;
+  accentRouteLabel: string | null;
   handoffMarkers: H3MapHandoffMarker[];
   focusHandoff: H3MapHandoffMarker | null;
   onFocusHandoffDismiss?: () => void;
@@ -1199,6 +1214,8 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
   transferCells,
   adjacentPairs,
   routeSegments,
+  accentRouteLegs,
+  accentRouteLabel,
   handoffMarkers,
   focusHandoff,
   onFocusHandoffDismiss,
@@ -1490,6 +1507,50 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
                     />
                   ) : null
                 )}
+                {accentRouteLegs?.map((leg, i) => {
+                  if (leg.points.length < 2) return null;
+                  const accentPath = {
+                    color: "#f59e0b",
+                    weight: 5,
+                    opacity: 1,
+                    lineCap: "round" as const,
+                    lineJoin: "round" as const,
+                  };
+                  const mode = leg.transportMode ?? "land";
+                  const accentTip =
+                    accentRouteLabel != null && accentRouteLabel !== "" ? (
+                      <Tooltip sticky direction="top">
+                        <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                          {accentRouteLabel}
+                        </span>
+                      </Tooltip>
+                    ) : null;
+                  if (mode === "sea") {
+                    return (
+                      <SeaRoutePolyline
+                        key={`accent-route-seg-${i}`}
+                        departure={leg.points[0]}
+                        arrival={leg.points[leg.points.length - 1]}
+                        pathOptions={accentPath}
+                      >
+                        {accentTip}
+                      </SeaRoutePolyline>
+                    );
+                  }
+                  const meta = TRANSPORT_MODE_META[mode];
+                  return (
+                    <Polyline
+                      key={`accent-route-seg-${i}`}
+                      positions={leg.points.map((p) => [p.lat, p.lng] as [number, number])}
+                      pathOptions={{
+                        ...accentPath,
+                        dashArray: meta.dashArray,
+                      }}
+                    >
+                      {accentTip}
+                    </Polyline>
+                  );
+                })}
               </>
             ) : (
               <Polyline

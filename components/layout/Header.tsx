@@ -1,9 +1,10 @@
 "use client";
 
-import { Bell, Menu, Moon, Sun } from "lucide-react";
+import { Menu, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "./NotificationBell";
 import { UserMenu } from "./UserMenu";
 
 interface HeaderProps {
@@ -29,7 +30,7 @@ export function Header({
   const isDark = (theme === "system" ? resolvedTheme : theme) === "dark";
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur-md overflow-visible">
       <div className="h-20 flex items-center justify-between gap-3 px-4 sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           {onOpenMobileNav && (
@@ -54,7 +55,7 @@ export function Header({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 overflow-visible">
           <Button
             variant="outline"
             size="sm"
@@ -68,16 +69,7 @@ export function Header({
               <Moon className="h-4 w-4" />
             )}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label="Notifications (coming soon)"
-            title="Notifications coming soon"
-            disabled
-            className="hidden sm:inline-flex"
-          >
-            <Bell className="h-4 w-4" />
-          </Button>
+          <NotificationBell />
           <UserMenu />
         </div>
       </div>

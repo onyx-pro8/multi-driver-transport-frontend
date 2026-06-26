@@ -123,6 +123,19 @@ export function createOrder(payload: CreateOrderRequest): Promise<Order> {
   });
 }
 
+export function createReceiverOrder(payload: import("@/types").CreateReceiverOrderRequest): Promise<Order> {
+  return apiRequest<Order>("/api/orders", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function connectOrder(orderId: number): Promise<import("@/types").ConnectOrderResponse> {
+  return apiRequest<import("@/types").ConnectOrderResponse>(`/api/orders/${orderId}/connect`, {
+    method: "POST",
+  });
+}
+
 export function updateOrderStatus(id: number, status: Exclude<OrderStatus, "submitted">): Promise<Order> {
   return apiRequest<Order>(`/api/orders/${id}/status`, {
     method: "PATCH",
@@ -132,6 +145,13 @@ export function updateOrderStatus(id: number, status: Exclude<OrderStatus, "subm
 
 export function listReceivers(): Promise<ReceiverSummary[]> {
   return apiRequest<ReceiverSummary[]>("/api/users/receivers", {
+    cacheOptions: { ttlMs: TTL_STATIC_LISTS },
+  });
+}
+
+export function listSenders(query?: string): Promise<import("@/types").SenderSummary[]> {
+  const qs = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
+  return apiRequest<import("@/types").SenderSummary[]>(`/api/users/senders${qs}`, {
     cacheOptions: { ttlMs: TTL_STATIC_LISTS },
   });
 }
@@ -241,6 +261,14 @@ export function previewZoneConnectionsByCoordinates(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/**
+ * Zone-connection preview for an existing order (senders, receivers, admins,
+ * and transporters assigned to a segment on the order).
+ */
+export function previewOrderZoneConnections(orderId: number): Promise<OrderDraftPreview> {
+  return apiRequest<OrderDraftPreview>(`/api/orders/${orderId}/zone-connection-preview`);
 }
 
 // --------------------------------------------------------------------------
@@ -532,4 +560,18 @@ export function getTransporterOrders(): Promise<import("@/types").TransporterOrd
   return apiRequest("/api/transporter/orders", {
     cacheOptions: { ttlMs: TTL_LIST },
   });
+}
+
+export function listNotifications(limit = 50): Promise<import("@/types").NotificationListResponse> {
+  return apiRequest(`/api/notifications?limit=${limit}`, {
+    cacheOptions: { key: `notifications:${limit}`, ttlMs: 5_000 },
+  });
+}
+
+export function markNotificationRead(id: number): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/notifications/${id}/read`, { method: "POST" });
+}
+
+export function markAllNotificationsRead(): Promise<{ updated: number }> {
+  return apiRequest("/api/notifications/read-all", { method: "POST" });
 }

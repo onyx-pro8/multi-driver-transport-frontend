@@ -12,6 +12,7 @@ export function canMarkPickReady(order: {
   tracking_status?: string;
 }): boolean {
   return (
+    order.tracking_status !== "AWAITING_CONNECT" &&
     isRouteConfirmed(order.route_selection_status) &&
     !order.pickup_ready_at &&
     (order.tracking_status === "CONFIRMED" || !order.tracking_status)
@@ -59,6 +60,7 @@ export function canSegmentMarkInTransit(item: TransporterConfirmationItem): bool
 }
 
 export const TRACKING_ACTION_LABELS = {
+  AWAITING_CONNECT: "Awaiting connect",
   CONFIRMED: "Confirmed",
   PICKUP_AVAILABLE: "Pick ready",
   PICKED_UP: "Picked up",

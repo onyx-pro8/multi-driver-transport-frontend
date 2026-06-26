@@ -52,7 +52,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Confirmations", href: "/transporter/confirmations", icon: CheckCircle2, roles: ["driver", "admin"] },
       { label: "Orders", href: "/orders", icon: Package, roles: ["sender", "receiver", "admin"] },
       { label: "Transporters", href: "/drivers", icon: Truck, roles: ["sender", "receiver", "admin"] },
-      { label: "Receivers", href: "/receivers", icon: Inbox, roles: ["sender", "admin"] },
+      { label: "Receivers", href: "/receivers", icon: Inbox, roles: ["admin"] },
     ],
   },
   {

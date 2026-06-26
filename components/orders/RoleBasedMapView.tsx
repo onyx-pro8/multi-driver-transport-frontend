@@ -5,7 +5,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { H3MapView } from "@/components/map/H3MapViewDynamic";
 import type { H3MapHandoffMarker } from "@/components/map/H3MapView";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
-import { previewZoneConnectionsByCoordinates } from "@/lib/api";
+import { previewOrderZoneConnections } from "@/lib/api";
 import { summaryToDriverZone } from "@/lib/orderDraftZoneMap";
 import { buildRouteHandoffs } from "@/lib/orderRouteChain";
 import { Button } from "@/components/ui/button";
@@ -76,14 +76,7 @@ export function RoleBasedMapView({
       }
 
       try {
-        const data = await previewZoneConnectionsByCoordinates({
-          source_lat: order.sender_lat,
-          source_lng: order.sender_lng,
-          destination_lat: order.destination_lat,
-          destination_lng: order.destination_lng,
-          source_address: order.sender_address,
-          destination_address: order.destination_address,
-        });
+        const data = await previewOrderZoneConnections(order.id);
         setPreview(data);
         hasPreviewRef.current = true;
       } catch {

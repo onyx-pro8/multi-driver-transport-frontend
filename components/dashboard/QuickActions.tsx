@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   Boxes,
   DollarSign,
-  Inbox,
   Map,
   Package,
   Plus,
@@ -60,8 +59,8 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
   ],
   sender: [
     {
-      label: "Create an order",
-      description: "Pick a receiver and ship a delivery",
+      label: "Incoming orders",
+      description: "Review shipment requests and connect routes",
       href: "/orders",
       icon: Send,
     },
@@ -72,12 +71,6 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
       icon: Truck,
     },
     {
-      label: "Receiver directory",
-      description: "Lookup people you can ship to",
-      href: "/receivers",
-      icon: Inbox,
-    },
-    {
       label: "Open map view",
       description: "See transporter coverage on a map",
       href: "/map-view",
@@ -85,6 +78,12 @@ const ACTIONS_BY_ROLE: Record<UserRole, QuickAction[]> = {
     },
   ],
   receiver: [
+    {
+      label: "Request shipment",
+      description: "Submit a shipment request to a sender",
+      href: "/orders",
+      icon: Send,
+    },
     {
       label: "View incoming orders",
       description: "Confirm deliveries you receive",

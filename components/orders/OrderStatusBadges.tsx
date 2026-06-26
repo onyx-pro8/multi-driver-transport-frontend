@@ -20,6 +20,20 @@ interface OrderStatusBadgesProps {
 export function OrderStatusBadges({ order, compact = false, className }: OrderStatusBadgesProps) {
   const hasRoute = Boolean(order.selected_route_id);
 
+  if (order.tracking_status === "AWAITING_CONNECT") {
+    return (
+      <span
+        className={cn(
+          "inline-flex rounded-full px-2 py-0.5 font-medium bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/20",
+          compact ? "text-[10px]" : "text-xs",
+          className
+        )}
+      >
+        Awaiting connect
+      </span>
+    );
+  }
+
   if (!hasRoute || !order.route_selection_status) {
     return (
       <span

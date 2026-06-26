@@ -12,9 +12,30 @@ import {
   SEGMENT_LEG_LABELS,
 } from "@/lib/trackingActions";
 import { cn, formatCurrency } from "@/lib/utils";
-import type { RouteConfirmationStatus, TransporterConfirmationItem } from "@/types";
+import type { RouteConfirmationStatus, SegmentCostStatus, TransporterConfirmationItem } from "@/types";
 import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
 import { OrderProgressBar } from "@/components/orders/SegmentTimeline";
+
+const SEGMENT_COST_LABEL: Record<SegmentCostStatus, string> = {
+  calculated: "Calculated",
+  manual: "Quoted",
+  missing: "Cost not set",
+  requested: "Quote pending",
+};
+
+function transporterSegmentCostLabel(item: TransporterConfirmationItem): string {
+  if (item.final_cost != null) {
+    return formatCurrency(item.final_cost, item.currency);
+  }
+  return SEGMENT_COST_LABEL[item.cost_status] ?? "Cost unavailable";
+}
+
+function transporterSegmentCostTotal(items: TransporterConfirmationItem[]): string | null {
+  const priced = items.filter((i) => i.final_cost != null);
+  if (priced.length === 0) return null;
+  const total = priced.reduce((sum, i) => sum + (i.final_cost ?? 0), 0);
+  return formatCurrency(total, priced[0].currency);
+}
 
 const SEGMENT_STATUS_BADGE: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20",
@@ -215,7 +236,9 @@ export function ConfirmationPanel({ items, onUpdated, onMessage }: ConfirmationP
           {routeGroups.length} route{routeGroups.length === 1 ? "" : "s"}.
         </p>
       )}
-      {routeGroups.map((group) => (
+      {routeGroups.map((group) => {
+        const segmentCostTotal = transporterSegmentCostTotal(group.items);
+        return (
         <Card
           key={group.route_id}
           className="cursor-pointer transition-colors hover:bg-muted/30"
@@ -237,13 +260,19 @@ export function ConfirmationPanel({ items, onUpdated, onMessage }: ConfirmationP
                       {group.pendingCount} pending
                     </span>
                   )}
+                  {segmentCostTotal && (
+                    <span className="ml-2 font-medium text-foreground">
+                      · Your cost: {segmentCostTotal}
+                    </span>
+                  )}
                 </p>
               </div>
               <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
             </div>
           </CardContent>
         </Card>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -293,6 +322,14 @@ function SegmentCard({
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
               Request sent: {new Date(item.sent_at).toLocaleString()}
+            </p>
+            <p
+              className={cn(
+                "text-sm font-semibold mt-2",
+                item.final_cost != null ? "text-foreground" : "text-amber-700 dark:text-amber-300"
+              )}
+            >
+              Your segment cost: {transporterSegmentCostLabel(item)}
             </p>
           </div>
           <span

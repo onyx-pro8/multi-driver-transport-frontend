@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
 import { deleteDriverZone, listDriverZones, updateDriverZone } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import type { DriverZone } from "@/types";
 
 import { H3MapView } from "@/components/map/H3MapViewDynamic";
@@ -18,7 +19,6 @@ export function DriverZonesPage() {
   const [zones, setZones] = useState<DriverZone[]>([]);
   const [viewZone, setViewZone] = useState<DriverZone | null>(null);
   const [editingZone, setEditingZone] = useState<DriverZone | null>(null);
-  const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [togglingZoneId, setTogglingZoneId] = useState<number | null>(null);
 
   const refreshZones = useCallback(async () => {
@@ -27,10 +27,7 @@ export function DriverZonesPage() {
       setZones(data);
       setViewZone((prev) => (prev ? data.find((z) => z.id === prev.id) ?? null : null));
     } catch (err) {
-      setBanner({
-        text: err instanceof Error ? err.message : "Failed to load zones",
-        type: "error",
-      });
+      showToast(err instanceof Error ? err.message : "Failed to load zones", "error");
     }
   }, []);
 
@@ -39,8 +36,7 @@ export function DriverZonesPage() {
   }, [refreshZones]);
 
   function showMessage(text: string, type: "success" | "error" = "success") {
-    setBanner({ text, type });
-    setTimeout(() => setBanner(null), 4000);
+    showToast(text, type);
   }
 
   async function handleDelete(zone: DriverZone) {
@@ -77,18 +73,6 @@ export function DriverZonesPage() {
 
   return (
     <>
-      {banner && (
-        <div
-          className={`mx-6 mb-4 rounded-xl border px-4 py-3 text-sm ${
-            banner.type === "success"
-              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
-              : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
-          }`}
-        >
-          {banner.text}
-        </div>
-      )}
-
       <div className="px-6 pb-8 space-y-6">
         <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <StatTile

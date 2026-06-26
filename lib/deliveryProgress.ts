@@ -97,6 +97,7 @@ export const LEG_STATUS_LABELS: Record<SegmentLegStatus, string> = {
 };
 
 const TRACKING_STATUS_RANK: Record<TrackingStatus, number> = {
+  AWAITING_CONNECT: -1,
   CONFIRMED: 0,
   PICKUP_AVAILABLE: 1,
   PICKED_UP: 2,
@@ -131,6 +132,7 @@ export function deriveEffectiveTrackingStatus(
   pickupReadyAt: string | null | undefined,
   segments?: Pick<SegmentConfirmationDetail, "segment_index" | "leg_status">[]
 ): TrackingStatus {
+  if (trackingStatus === "AWAITING_CONNECT") return "AWAITING_CONNECT";
   if (trackingStatus === "DELIVERED") return "DELIVERED";
 
   const fromLegs = deriveTrackingStatusFromLegs(segments ?? [], Boolean(pickupReadyAt));

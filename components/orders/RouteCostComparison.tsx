@@ -69,6 +69,7 @@ interface Props {
 export function RouteCostComparison({ orderId, refreshSignal = 0, onMessage }: Props) {
   const { user } = useAuth();
   const canEnterManual = user?.role === "admin" || user?.role === "driver";
+  const isDriver = user?.role === "driver";
   const canRequestQuote =
     user?.role === "admin" || user?.role === "sender" || user?.role === "receiver";
   const canRecalculate =
@@ -253,16 +254,19 @@ export function RouteCostComparison({ orderId, refreshSignal = 0, onMessage }: P
         <div>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
-            Route Cost Comparison
+            {isDriver ? "Your Zone Costs" : "Route Cost Comparison"}
             {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Pricing engine: (base × package factor) + traveling + waiting + booking fee
-            {data ? ` (${formatBookingFeePercent(data.booking_fee_rate)})` : ""}.
-            Each route segment uses its zone&apos;s pricing mode (system or own price).
-            Land distance uses{" "}
-            {pricingConfig?.land_distance_provider === "google" ? "Google road routing" : "H3 estimate"}.
-            Air segments always require a requested/manual cost.
+            {isDriver
+              ? "Costs for your zone segments only. Other transporters on the same route are not shown."
+              : `Pricing engine: (base × package factor) + traveling + waiting + booking fee${
+                  data ? ` (${formatBookingFeePercent(data.booking_fee_rate)})` : ""
+                }. Each route segment uses its zone's pricing mode (system or own price). Land distance uses ${
+                  pricingConfig?.land_distance_provider === "google"
+                    ? "Google road routing"
+                    : "H3 estimate"
+                }. Air segments always require a requested/manual cost.`}
           </p>
         </div>
         <Button
@@ -351,7 +355,7 @@ export function RouteCostComparison({ orderId, refreshSignal = 0, onMessage }: P
             />
           ))
         )}
-        {confirmation && selectedRoute && (
+        {confirmation && selectedRoute && !isDriver && (
           <div className="space-y-3 pt-2 border-t border-border">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium">Route confirmation status</p>
@@ -421,13 +425,26 @@ function RouteCard({
   userId?: number;
   userRole?: string;
 }) {
+  const isDriver = userRole === "driver";
+  const visibleSegments = isDriver
+    ? route.segments.filter((s) => s.transporter_id === userId)
+    : route.segments;
   const pendingCount =
     route.missing_segment_count + (route.requested_segment_count ?? 0);
   const hasPending = pendingCount > 0;
   const costLabel =
     route.total_final_cost != null
-      ? formatCurrency(route.total_final_cost, route.currency)
-      : "Cost unavailable";
+      ? `${isDriver ? "Your cost: " : ""}${formatCurrency(route.total_final_cost, route.currency)}`
+      : isDriver
+        ? "Your cost unavailable"
+        : "Cost unavailable";
+  const segmentSummary = isDriver
+    ? visibleSegments
+        .map((s) => `${s.from_label} → ${s.to_label}`)
+        .join(" · ")
+    : `${route.transporters.join(" → ")} · ${route.segment_count} segment${
+        route.segment_count === 1 ? "" : "s"
+      }`;
 
   return (
     <div className="rounded-xl border border-border p-4 space-y-3">
@@ -456,12 +473,9 @@ function RouteCard({
               </span>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {route.transporters.join(" → ")} · {route.segment_count} segment
-            {route.segment_count === 1 ? "" : "s"}
-          </p>
+          <p className="text-sm text-muted-foreground">{segmentSummary}</p>
           <div className="flex flex-wrap gap-1.5">
-            {route.segments.map((s) => (
+            {visibleSegments.map((s) => (
               <span
                 key={s.segment_id}
                 className="rounded-md bg-muted px-2 py-0.5 text-xs capitalize"
@@ -528,7 +542,7 @@ function RouteCard({
               </tr>
             </thead>
             <tbody>
-              {route.segments.map((seg) => {
+              {visibleSegments.map((seg) => {
                 const needsEntry =
                   seg.cost_status === "missing" || seg.cost_status === "requested";
                 const ownsSegment = userRole === "admin" || seg.transporter_id === userId;

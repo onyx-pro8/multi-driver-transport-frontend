@@ -1,11 +1,12 @@
 import { cellToLatLng, isValidCell } from "h3-js";
 import type { H3MapHandoffMarker } from "@/components/map/H3MapView";
 import { summaryToDriverZone } from "@/lib/orderDraftZoneMap";
-import { isHubMode, normalizeTransportMode } from "@/lib/transportMode";
+import { isHubMode, normalizeTransportMode, type NormalizedTransportMode } from "@/lib/transportMode";
 import type {
   OrderDraftChain,
   OrderDraftConnection,
   OrderDraftZoneSummary,
+  RouteSegmentCost,
 } from "@/types";
 
 interface LatLng {
@@ -116,6 +117,157 @@ export function connectionWaypointForLeg(
   const b = zoneCenter(toZone);
   if (a && b) return { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
   return a ?? b ?? null;
+}
+
+/**
+ * Land-only polyline legs for a selected chain. Air/sea middle legs are drawn
+ * by the zone layer between departure and arrival terminals.
+ */
+export function buildRouteSegments(
+  chain: OrderDraftChain,
+  connectionsById: Map<number, OrderDraftConnection>,
+  zonesById: Map<number, OrderDraftZoneSummary>,
+  source: LatLng,
+  destination: LatLng
+): LatLng[][] {
+  const segments: LatLng[][] = [];
+  let current: LatLng[] = [source];
+
+  const isHub = (zoneId: number) => {
+    const z = zonesById.get(zoneId);
+    return Boolean(z && isHubMode(normalizeTransportMode(z.transport_method)));
+  };
+
+  for (let i = 0; i < chain.zone_ids.length; i++) {
+    const zoneId = chain.zone_ids[i];
+    const connIn = i > 0 ? connectionsById.get(chain.connection_ids[i - 1]) : undefined;
+    const connOut =
+      i < chain.connection_ids.length ? connectionsById.get(chain.connection_ids[i]) : undefined;
+
+    if (isHub(zoneId)) {
+      const zone = zonesById.get(zoneId);
+      const entry = connectionTerminalForZone(connIn, zoneId) ?? "departure";
+      const exit = connectionTerminalForZone(connOut, zoneId) ?? "arrival";
+      const entryPoint = hubTerminal(zone, entry);
+      const exitPoint = hubTerminal(zone, exit);
+
+      if (entryPoint) current.push(entryPoint);
+      if (current.length >= 2) segments.push([...current]);
+      current = exitPoint ? [exitPoint] : [];
+    } else if (connOut) {
+      const nextZoneId = chain.zone_ids[i + 1];
+      const nextIsHub = i + 1 < chain.zone_ids.length && isHub(chain.zone_ids[i + 1]);
+      if (!nextIsHub && nextZoneId != null) {
+        const wp = connectionWaypointForLeg(connOut, zoneId, nextZoneId, zonesById);
+        if (wp) current.push(wp);
+      }
+    }
+  }
+
+  current.push(destination);
+  if (current.length >= 2) segments.push(current);
+  return segments;
+}
+
+export function resolveRouteChain(
+  previewChains: OrderDraftChain[],
+  zoneIds: number[],
+  connectionIds: number[]
+): OrderDraftChain {
+  const found = previewChains.find(
+    (c) =>
+      c.zone_ids.length === zoneIds.length &&
+      c.zone_ids.every((id, index) => id === zoneIds[index])
+  );
+  if (found) return found;
+  return {
+    zone_ids: zoneIds,
+    connection_ids: connectionIds,
+    hops: Math.max(0, zoneIds.length - 1),
+  };
+}
+
+/** One drawable leg on the map, with optional air/sea routing semantics. */
+export interface RouteMapLeg {
+  points: LatLng[];
+  transportMode?: NormalizedTransportMode;
+}
+
+/**
+ * Accent geometry for one priced route segment — follows real handoffs and
+ * hub/port lanes, never a straight chord between zone centroids.
+ */
+export function buildSegmentAccentLegs(
+  segment: Pick<RouteSegmentCost, "segment_index" | "zone_id" | "transport_method">,
+  chain: OrderDraftChain,
+  connectionsById: Map<number, OrderDraftConnection>,
+  zonesById: Map<number, OrderDraftZoneSummary>,
+  source: LatLng,
+  destination: LatLng
+): RouteMapLeg[] {
+  const segIdx = segment.segment_index;
+  const zoneId = chain.zone_ids[segIdx];
+  if (zoneId == null) return [];
+
+  const zone = zonesById.get(zoneId);
+  const mode = zone
+    ? normalizeTransportMode(zone.transport_method)
+    : normalizeTransportMode(segment.transport_method);
+
+  if (isHubMode(mode) && zone) {
+    const dep = hubTerminal(zone, "departure");
+    const arr = hubTerminal(zone, "arrival");
+    if (dep && arr) {
+      return [{ points: [dep, arr], transportMode: mode }];
+    }
+    return [];
+  }
+
+  const points: LatLng[] = [];
+
+  if (segIdx === 0) {
+    points.push(source);
+  } else {
+    const prevZoneId = chain.zone_ids[segIdx - 1]!;
+    const connIn = connectionsById.get(chain.connection_ids[segIdx - 1]!);
+    const prevZone = zonesById.get(prevZoneId);
+
+    if (prevZone && isHubMode(normalizeTransportMode(prevZone.transport_method))) {
+      const exit = connectionTerminalForZone(connIn, prevZoneId) ?? "arrival";
+      const pt = hubTerminal(prevZone, exit);
+      if (pt) points.push(pt);
+    } else if (connIn) {
+      const wp = connectionWaypointForLeg(connIn, prevZoneId, zoneId, zonesById);
+      if (wp) points.push(wp);
+    }
+    if (points.length === 0) {
+      const prevCenter = zoneCenter(prevZone);
+      if (prevCenter) points.push(prevCenter);
+    }
+  }
+
+  const isLast = segIdx === chain.zone_ids.length - 1;
+  if (isLast) {
+    points.push(destination);
+  } else {
+    const connOut = connectionsById.get(chain.connection_ids[segIdx]!);
+    const nextZoneId = chain.zone_ids[segIdx + 1]!;
+
+    if (connOut) {
+      const nextZone = zonesById.get(nextZoneId);
+      if (nextZone && isHubMode(normalizeTransportMode(nextZone.transport_method))) {
+        const entry = connectionTerminalForZone(connOut, nextZoneId) ?? "departure";
+        const pt = hubTerminal(nextZone, entry);
+        if (pt) points.push(pt);
+      } else {
+        const wp = connectionWaypointForLeg(connOut, zoneId, nextZoneId, zonesById);
+        if (wp) points.push(wp);
+      }
+    }
+  }
+
+  if (points.length < 2) return [];
+  return [{ points, transportMode: "land" }];
 }
 
 export interface RouteHandoffStep {

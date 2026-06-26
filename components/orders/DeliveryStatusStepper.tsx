@@ -6,6 +6,7 @@ import { deriveEffectiveTrackingStatus } from "@/lib/deliveryProgress";
 import type { SegmentConfirmationDetail, TrackingStatus } from "@/types";
 
 export const TRACKING_STATUS_LABELS: Record<TrackingStatus, string> = {
+  AWAITING_CONNECT: "Awaiting sender connect",
   CONFIRMED: "Confirmed",
   PICKUP_AVAILABLE: "Pickup ready",
   PICKED_UP: "Picked up",
@@ -14,6 +15,7 @@ export const TRACKING_STATUS_LABELS: Record<TrackingStatus, string> = {
 };
 
 const TRACKING_STATUS_HINTS: Record<TrackingStatus, string> = {
+  AWAITING_CONNECT: "The receiver submitted this request. The sender must connect before routes are built.",
   CONFIRMED: "Route confirmed by all transporters. Sender can mark the package as pick ready.",
   PICKUP_AVAILABLE: "Package is ready at the sender — waiting for the first transporter to pick up.",
   PICKED_UP: "Package has been collected from the sender and is moving through the route.",
@@ -51,6 +53,9 @@ function currentStatusLabel(
   pickupReadyAt: string | null | undefined,
   trackingStatus: TrackingStatus
 ): string {
+  if (trackingStatus === "AWAITING_CONNECT") {
+    return TRACKING_STATUS_LABELS.AWAITING_CONNECT;
+  }
   if (!routeConfirmed) return "Route not confirmed";
   if (!pickupReadyAt) return TRACKING_STATUS_LABELS.CONFIRMED;
   return TRACKING_STATUS_LABELS[trackingStatus];
@@ -69,6 +74,9 @@ function currentStatusHint(
   pickupReadyAt: string | null | undefined,
   trackingStatus: TrackingStatus
 ): string {
+  if (trackingStatus === "AWAITING_CONNECT") {
+    return TRACKING_STATUS_HINTS.AWAITING_CONNECT;
+  }
   if (!routeConfirmed) return ROUTE_NOT_CONFIRMED_HINT;
   if (!pickupReadyAt) return TRACKING_STATUS_HINTS.CONFIRMED;
   return TRACKING_STATUS_HINTS[trackingStatus];

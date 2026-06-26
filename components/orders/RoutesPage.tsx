@@ -5,9 +5,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Loader2, MapPin, Package, Route as RouteIcon } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OrderStatusBadges } from "@/components/orders/OrderStatusBadges";
-import { listOrders } from "@/lib/api";
+import { connectOrder, listOrders } from "@/lib/api";
+import { getShipmentEntityLabels, shipmentRef } from "@/lib/entityLabels";
+import { showToast } from "@/lib/toast";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
@@ -18,13 +21,18 @@ export function RoutesPage() {
   const searchParams = useSearchParams();
   const isSender = user?.role === "sender" || user?.role === "admin";
   const isDriver = user?.role === "driver";
+  const entity = getShipmentEntityLabels();
+  const entityLabel = entity.lowercase;
+  const EntityLabel = entity.capitalized;
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const hasOrdersRef = useRef(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [costRefreshKey, setCostRefreshKey] = useState(0);
-  const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [connecting, setConnecting] = useState<number | null>(null);
+
+  const isAwaitingConnect = (order: Order) => order.tracking_status === "AWAITING_CONNECT";
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent && !hasOrdersRef.current) {
@@ -35,14 +43,14 @@ export function RoutesPage() {
       setOrders(data);
       hasOrdersRef.current = data.length > 0;
     } catch (err) {
-      setBanner({
-        text: err instanceof Error ? err.message : "Failed to load orders",
-        type: "error",
-      });
+      showToast(
+        err instanceof Error ? err.message : `Failed to load ${entityLabel}s`,
+        "error"
+      );
     } finally {
       setInitialLoading(false);
     }
-  }, []);
+  }, [entityLabel]);
 
   useEffect(() => {
     void refresh(false);
@@ -69,53 +77,57 @@ export function RoutesPage() {
   );
 
   const showMessage = useCallback((text: string, type: "success" | "error" = "success") => {
-    setBanner({ text, type });
-    setTimeout(() => setBanner(null), 4000);
+    showToast(text, type);
   }, []);
+
+  async function handleConnect(order: Order) {
+    setConnecting(order.id);
+    try {
+      const { route_recalc_warning, ...updated } = await connectOrder(order.id);
+      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+      setCostRefreshKey((k) => k + 1);
+      showToast("Shipment connected. Compare routes below.", "success");
+      if (route_recalc_warning) {
+        showToast(route_recalc_warning, "error");
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to connect shipment", "error");
+    } finally {
+      setConnecting(null);
+    }
+  }
 
   return (
     <>
-      {banner && (
-        <div
-          className={`mx-6 mb-4 rounded-xl border px-4 py-3 text-sm ${
-            banner.type === "success"
-              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
-              : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
-          }`}
-        >
-          {banner.text}
-        </div>
-      )}
-
       <div className="px-6 pb-8 space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <RouteIcon className="h-4 w-4" />
-              Select an order
+              Select {entity.indefiniteArticle} {EntityLabel}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               {isDriver
-                ? "Pick an order to view routes and enter quotes for your segments."
-                : "Pick an order to compare possible delivery routes by estimated cost. Routes are generated from connected transporter zones between pickup and destination."}
+                ? "Pick a shipment to view routes and enter quotes for your segments."
+                : "Pick a shipment to compare possible delivery routes by estimated cost."}
             </p>
           </CardHeader>
           <CardContent>
             {initialLoading ? (
               <div className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading orders…
+                Loading {entityLabel}s…
               </div>
             ) : orders.length === 0 ? (
               <div className="py-8 text-center space-y-3">
-                <p className="text-sm text-muted-foreground">No orders yet.</p>
+                <p className="text-sm text-muted-foreground">No {entityLabel}s yet.</p>
                 {isSender && (
                   <Link
                     href="/orders"
                     className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                   >
                     <Package className="h-4 w-4" />
-                    Create an order first
+                    View shipments on Orders
                   </Link>
                 )}
               </div>
@@ -142,7 +154,7 @@ export function RoutesPage() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="font-medium">Order #{order.id}</p>
+                          <p className="font-medium">{shipmentRef(order.id)}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {isSender ? "To" : isDriver ? "Route" : "From"}: {counterparty}
                           </p>
@@ -174,12 +186,14 @@ export function RoutesPage() {
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Package · Order #{selectedOrder.id}</CardTitle>
+                <CardTitle className="text-base">
+                  Package · {shipmentRef(selectedOrder.id)}
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <OrderPackageEditor
                   order={selectedOrder}
-                  canEdit={isSender}
+                  canEdit={isSender && !isAwaitingConnect(selectedOrder)}
                   onUpdated={(updated) => {
                     setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
                   }}
@@ -188,16 +202,43 @@ export function RoutesPage() {
                 />
               </CardContent>
             </Card>
-            <RouteCostComparison
-              orderId={selectedOrder.id}
-              refreshSignal={costRefreshKey}
-              onMessage={showMessage}
-            />
+            {selectedOrder && isAwaitingConnect(selectedOrder) ? (
+              <Card>
+                <CardContent className="py-8 text-center space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {isSender
+                      ? "This shipment request is waiting for you to connect before routes can be built."
+                      : "Waiting for the sender to connect this shipment before routes are available."}
+                  </p>
+                  {isSender && (
+                    <Button
+                      onClick={() => void handleConnect(selectedOrder)}
+                      disabled={connecting === selectedOrder.id}
+                    >
+                      {connecting === selectedOrder.id ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Connecting…
+                        </>
+                      ) : (
+                        "Connect shipment"
+                      )}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <RouteCostComparison
+                orderId={selectedOrder.id}
+                refreshSignal={costRefreshKey}
+                onMessage={showMessage}
+              />
+            )}
           </div>
         ) : !initialLoading && orders.length > 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Select an order above to view route cost comparison.
+              Select {entity.indefiniteArticle} {entityLabel} above to view route cost comparison.
             </CardContent>
           </Card>
         ) : null}

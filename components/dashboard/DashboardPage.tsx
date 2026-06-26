@@ -25,8 +25,9 @@ import {
   listOrders,
   listReceivers,
   listZoneConnections,
-  updateOrderStatus,
+  updateOrderTrackingStatus,
 } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleBadge } from "@/components/ui/RoleBadge";
@@ -231,7 +232,7 @@ function SenderDashboard() {
           label="Transporters"
           value={data.available_drivers}
           icon={Truck}
-          hint={`${data.available_receivers} receivers available`}
+          hint="Available to follow"
           accent="violet"
         />
       </section>
@@ -297,7 +298,6 @@ function ReceiverDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [updating, setUpdating] = useState<number | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -318,13 +318,17 @@ function ReceiverDashboard() {
   async function confirmReceived(order: Order) {
     setUpdating(order.id);
     try {
-      const updated = await updateOrderStatus(order.id, "received");
-      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-      setBanner(`Order #${order.id} marked as received.`);
-      setTimeout(() => setBanner(null), 3500);
+      const result = await updateOrderTrackingStatus(order.id, "DELIVERED");
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? { ...o, tracking_status: result.tracking_status, status: "received" }
+            : o
+        )
+      );
+      showToast(`Shipment #${order.id} marked as delivered.`, "success");
     } catch (err) {
-      setBanner(err instanceof Error ? err.message : "Failed to update order");
-      setTimeout(() => setBanner(null), 4000);
+      showToast(err instanceof Error ? err.message : "Failed to update shipment", "error");
     } finally {
       setUpdating(null);
     }
@@ -335,7 +339,7 @@ function ReceiverDashboard() {
   if (!data) return null;
 
   const pending = orders.filter(
-    (o) => o.status === "delivering" && o.receiver_user_id === user?.id
+    (o) => o.tracking_status === "IN_TRANSIT" && o.receiver_user_id === user?.id
   );
   const incoming = orders.filter(
     (o) => o.status === "submitted" && o.receiver_user_id === user?.id
@@ -343,12 +347,6 @@ function ReceiverDashboard() {
 
   return (
     <>
-      {banner && (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm">
-          {banner}
-        </div>
-      )}
-
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Awaiting confirmation"
@@ -427,7 +425,7 @@ function ReceiverDashboard() {
                         onClick={() => confirmReceived(order)}
                         className="shrink-0 self-stretch sm:self-auto"
                       >
-                        {updating === order.id ? "Updating…" : "Mark received"}
+                        {updating === order.id ? "Updating…" : "Mark delivered"}
                       </Button>
                     </li>
                   ))}

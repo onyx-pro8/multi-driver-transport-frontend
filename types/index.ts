@@ -273,6 +273,10 @@ export interface Order {
   updated_at: string;
 }
 
+export interface ConnectOrderResponse extends Order {
+  route_recalc_warning?: string | null;
+}
+
 export interface CreateOrderRequest {
   receiver_user_id: number;
   sender_address?: string;
@@ -298,6 +302,25 @@ export interface CreateOrderRequest {
   package_width?: number | null;
   package_height?: number | null;
   package_dimension_unit?: string;
+  dimensions?: string;
+}
+
+export interface CreateReceiverOrderRequest {
+  sender_user_id: number;
+  destination_address: string;
+  destination_lat: number;
+  destination_lng: number;
+  receiver_billing_address?: string;
+  notes?: string;
+  payment_method?: string;
+  shipping_method?: string;
+  package_description?: string;
+  package_type?: PackageType;
+  packages?: OrderPackageEntry[];
+  weight_lbs?: number | null;
+  package_length?: number | null;
+  package_width?: number | null;
+  package_height?: number | null;
   dimensions?: string;
 }
 
@@ -342,6 +365,12 @@ export interface ReceiverSummary {
   address: string;
   lat: number | null;
   lng: number | null;
+}
+
+export interface SenderSummary {
+  id: number;
+  full_name: string;
+  email: string;
 }
 
 export interface DriverSummary {
@@ -848,13 +877,22 @@ export interface TransporterQuoteRequest {
   order_id: number;
   order_status: string;
   sender_address: string;
+  sender_lat: number | null;
+  sender_lng: number | null;
   destination_address: string;
+  destination_lat: number | null;
+  destination_lng: number | null;
   package_type: PackageType | null;
   packages?: OrderPackageEntry[];
   package_weight_lbs: number | null;
   package_dimensions_in: string | null;
+  priced_zone_id: number;
   route_id: number;
   route_label: string;
+  zone_ids: number[];
+  connection_ids: number[];
+  affected_routes: { route_id: number; route_label: string }[];
+  segment_ids: number[];
   segment: RouteSegmentCost;
   updated_at: string;
 }
@@ -938,6 +976,9 @@ export interface TransporterConfirmationItem {
   pickup_ready_at: string | null;
   route_segment_count: number;
   previous_leg_status: SegmentLegStatus | null;
+  final_cost: number | null;
+  currency: string;
+  cost_status: SegmentCostStatus;
 }
 
 // --------------------------------------------------------------------------
@@ -945,6 +986,7 @@ export interface TransporterConfirmationItem {
 // --------------------------------------------------------------------------
 
 export type TrackingStatus =
+  | "AWAITING_CONNECT"
   | "CONFIRMED"
   | "PICKUP_AVAILABLE"
   | "PICKED_UP"
@@ -1004,4 +1046,37 @@ export interface TransporterOrderViewItem {
   }[];
   upstream_transporter: string | null;
   downstream_transporter: string | null;
+}
+
+// --------------------------------------------------------------------------
+// Notifications
+// --------------------------------------------------------------------------
+
+export type NotificationType =
+  | "order_request"
+  | "order_connected"
+  | "confirmation_request"
+  | "quote_request"
+  | "segment_rejected"
+  | "route_confirmed"
+  | "pickup_ready"
+  | "segment_picked_up"
+  | "segment_in_transit"
+  | "delivered"
+  | "zone_created"
+  | "general";
+
+export interface UserNotification {
+  id: number;
+  order_id: number | null;
+  type: NotificationType;
+  title: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationListResponse {
+  items: UserNotification[];
+  unread_count: number;
 }

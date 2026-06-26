@@ -21,7 +21,7 @@ import { formatCellCoords } from "@/lib/geo";
 import { summaryToDriverZone, zoneCells } from "@/lib/orderDraftZoneMap";
 import {
   buildRouteHandoffs,
-  connectionWaypointForLeg,
+  buildRouteSegments,
   summarizeRouteChain,
   transporterZoneLabel,
 } from "@/lib/orderRouteChain";
@@ -69,104 +69,6 @@ function zoneCenter(z: OrderDraftZoneSummary | undefined): LatLng | null {
   }
   if (n === 0) return null;
   return { lat: lat / n, lng: lng / n };
-}
-
-/**
- * The geographic handoff point for one connection on a selected route (legacy
- * helper for route polylines — prefer `connectionWaypointForLeg` from
- * orderRouteChain for direction-aware waypoints).
- */
-function connectionWaypoint(
-  c: OrderDraftConnection,
-  fromZoneId: number,
-  toZoneId: number,
-  zonesById: Map<number, OrderDraftZoneSummary>
-): LatLng | null {
-  return connectionWaypointForLeg(c, fromZoneId, toZoneId, zonesById);
-}
-
-/** Air/sea terminal of `zone` (or null when missing / not a hub zone). */
-function hubTerminal(
-  zone: OrderDraftZoneSummary | undefined,
-  role: "departure" | "arrival"
-): LatLng | null {
-  if (!zone) return null;
-  const hub = role === "arrival" ? zone.arrival_hub : zone.departure_hub;
-  if (hub && Number.isFinite(hub.lat) && Number.isFinite(hub.lng)) {
-    return { lat: hub.lat, lng: hub.lng };
-  }
-  return null;
-}
-
-/** Which terminal of `zoneId` a hub connection attaches to (if any). */
-function connectionTerminalForZone(
-  conn: OrderDraftConnection | undefined,
-  zoneId: number
-): "departure" | "arrival" | null {
-  if (!conn || conn.connection_type !== "hub") return null;
-  if (conn.from_zone_id === zoneId) return conn.hub_role_a ?? null;
-  if (conn.to_zone_id === zoneId) return conn.hub_role_b ?? null;
-  return null;
-}
-
-/**
- * Land-only polyline legs for a selected chain. For every air/sea zone the
- * ground leg runs up to its *departure* terminal and resumes at its *arrival*
- * terminal — the zone's own flight path / shipping lane (rendered by
- * SavedZonesLayer) covers the middle leg between the two. Walking the chain
- * zone-by-zone (rather than connection-by-connection) means a hub zone that
- * sits at the very start or end of the chain still contributes *both*
- * terminals, so an air/sea leg next to the pickup or drop-off is fully drawn.
- */
-function buildRouteSegments(
-  chain: OrderDraftChain,
-  connectionsById: Map<number, OrderDraftConnection>,
-  zonesById: Map<number, OrderDraftZoneSummary>,
-  source: LatLng,
-  destination: LatLng
-): LatLng[][] {
-  const segments: LatLng[][] = [];
-  let current: LatLng[] = [source];
-
-  const isHub = (zoneId: number) => {
-    const z = zonesById.get(zoneId);
-    return Boolean(z && isHubMode(normalizeTransportMode(z.transport_method)));
-  };
-
-  for (let i = 0; i < chain.zone_ids.length; i++) {
-    const zoneId = chain.zone_ids[i];
-    const connIn = i > 0 ? connectionsById.get(chain.connection_ids[i - 1]) : undefined;
-    const connOut =
-      i < chain.connection_ids.length ? connectionsById.get(chain.connection_ids[i]) : undefined;
-
-    if (isHub(zoneId)) {
-      const zone = zonesById.get(zoneId);
-      // Enter at the terminal the incoming leg uses (default departure when
-      // this zone covers the pickup) and leave at the terminal the outgoing
-      // leg uses (default arrival when it covers the drop-off).
-      const entry = connectionTerminalForZone(connIn, zoneId) ?? "departure";
-      const exit = connectionTerminalForZone(connOut, zoneId) ?? "arrival";
-      const entryPoint = hubTerminal(zone, entry);
-      const exitPoint = hubTerminal(zone, exit);
-
-      if (entryPoint) current.push(entryPoint);
-      if (current.length >= 2) segments.push([...current]);
-      // Break here — the air/sea lane between the two terminals is drawn by
-      // the zone layer — and resume the ground leg at the exit terminal.
-      current = exitPoint ? [exitPoint] : [];
-    } else if (connOut) {
-      const nextZoneId = chain.zone_ids[i + 1];
-      const nextIsHub = i + 1 < chain.zone_ids.length && isHub(chain.zone_ids[i + 1]);
-      if (!nextIsHub && nextZoneId != null) {
-        const wp = connectionWaypoint(connOut, zoneId, nextZoneId, zonesById);
-        if (wp) current.push(wp);
-      }
-    }
-  }
-
-  current.push(destination);
-  if (current.length >= 2) segments.push(current);
-  return segments;
 }
 
 interface Props {
