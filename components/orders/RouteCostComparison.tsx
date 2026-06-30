@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  applyExternalSegmentCost,
   applyManualSegmentCost,
   fetchExternalSegmentQuote,
   getOrderRouteCostComparison,
@@ -220,28 +219,6 @@ export function RouteCostComparison({
       );
     } finally {
       setSavingSegment(null);
-    }
-  }
-
-  async function handleExternalSave(segment: RouteSegmentCost) {
-    const raw = manualInputs[segment.segment_id] ?? "";
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value < 0) {
-      onMessage?.("Enter a valid cost >= 0", "error");
-      return;
-    }
-    // setSavingExternal(segment.segment_id);
-    try {
-      await applyExternalSegmentCost(segment.segment_id, value);
-      await load(true);
-      onMessage?.("External quote saved.");
-    } catch (err) {
-      onMessage?.(
-        err instanceof Error ? err.message : "Failed to save external quote",
-        "error",
-      );
-    } finally {
-      // setSavingExternal(null);
     }
   }
 
