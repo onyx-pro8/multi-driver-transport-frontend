@@ -624,7 +624,7 @@ function RouteCard({
                               {seg.cost_status === "calculated" ? "Override" : "Save"}
                             </Button>
                           </div>
-                          {showExternal && (
+                          {/* {showExternal && (
                             <Button
                               type="button"
                               size="sm"
@@ -635,7 +635,7 @@ function RouteCard({
                             >
                               Save external quote
                             </Button>
-                          )}
+                          )} */}
                           {showFetchExternal && (
                             <Button
                               type="button"
