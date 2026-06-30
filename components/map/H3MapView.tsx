@@ -699,10 +699,6 @@ export interface H3MapViewProps {
    * are hidden via the "Show zones" toggle.
    */
   pathHubZones?: DriverZone[];
-  /**
-   * Full route legs including air/sea — drawn independently of saved zone polygons.
-   */
-  routePathLegs?: RouteMapLeg[] | null;
   /** Names/addresses shown on pickup (sender) and drop-off (receiver) markers. */
   endpointLabels?: H3MapEndpointLabels | null;
   /**
@@ -782,7 +778,6 @@ export function H3MapView({
   handoffMarkers = EMPTY_HANDOFF,
   endpointCoords = null,
   pathHubZones = EMPTY_ZONES,
-  routePathLegs = null,
   endpointLabels = null,
   showZoneTooltips,
   focusZone = null,
@@ -813,7 +808,7 @@ export function H3MapView({
     // Final fallback when the browser denies / doesn't support geolocation
     // and there is no other anchor geometry yet.
     return [37.7749, -122.4194];
-  }, [center, conversion, firstSelectedCell, userLocation]);
+  }, [center, conversion, endpointCoords, firstSelectedCell, userLocation]);
 
   /**
    * Positions describing the explicitly-focused zone (Edit / View target).
