@@ -1,5 +1,4 @@
 import type { PffLegPhase, SegmentConfirmationDetail, SegmentLegStatus, TrackingStatus } from "@/types";
-import { isPffPaymentMethod } from "@/lib/paymentFlow";
 
 export type DeliveryNodePhase = "completed" | "current" | "upcoming";
 
