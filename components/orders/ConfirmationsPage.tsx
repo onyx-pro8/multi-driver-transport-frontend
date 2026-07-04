@@ -20,6 +20,49 @@ export function ConfirmationsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const hasDataRef = useRef(false);
 
+  const patchItem = useCallback(
+    (segmentId: number, patch: Partial<TransporterConfirmationItem>) => {
+      setItems((prev) => {
+        const current = prev.find((item) => item.segment_id === segmentId);
+        if (!current) {
+          return prev.map((item) =>
+            item.segment_id === segmentId ? { ...item, ...patch } : item
+          );
+        }
+
+        const nextSegmentIndex = current.segment_index + 1;
+        const legStatus = patch.leg_status;
+
+        return prev.map((item) => {
+          if (item.segment_id === segmentId) {
+            return { ...item, ...patch };
+          }
+          if (
+            legStatus &&
+            item.route_id === current.route_id &&
+            item.segment_index === nextSegmentIndex
+          ) {
+            return { ...item, previous_leg_status: legStatus };
+          }
+          if (
+            patch.order_tracking_status != null &&
+            item.order_id === current.order_id
+          ) {
+            return { ...item, order_tracking_status: patch.order_tracking_status };
+          }
+          if (
+            patch.goods_ready_at !== undefined &&
+            item.order_id === current.order_id
+          ) {
+            return { ...item, goods_ready_at: patch.goods_ready_at };
+          }
+          return item;
+        });
+      });
+    },
+    []
+  );
+
   const load = useCallback(async (silent = false) => {
     if (!silent && !hasDataRef.current) {
       setInitialLoading(true);
@@ -29,12 +72,10 @@ export function ConfirmationsPage() {
       setItems(data);
       hasDataRef.current = true;
     } catch (err) {
-      if (!hasDataRef.current) {
-        showToast(
-          err instanceof Error ? err.message : "Failed to load confirmations",
-          "error",
-        );
-      }
+      showToast(
+        err instanceof Error ? err.message : "Failed to load confirmations",
+        "error",
+      );
     } finally {
       setInitialLoading(false);
     }
@@ -96,7 +137,10 @@ export function ConfirmationsPage() {
         {tab === "confirmations" ? (
           <ConfirmationPanel
             items={items}
-            onUpdated={() => void load(true)}
+            onPatchItem={patchItem}
+            onUpdated={async () => {
+              await load(true);
+            }}
             onMessage={showMessage}
           />
         ) : (

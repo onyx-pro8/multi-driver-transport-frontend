@@ -64,9 +64,13 @@ interface CacheEntry {
 
 const responseCache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<unknown>>();
+/** Bumped on every mutation so in-flight GETs cannot write stale cache entries. */
+let cacheGeneration = 0;
 
 /** Drop everything that was cached. Call this after a mutation. */
 export function invalidateCache(prefix?: string): void {
+  cacheGeneration += 1;
+  inFlight.clear();
   if (!prefix) {
     responseCache.clear();
     return;
@@ -149,6 +153,7 @@ export async function apiRequest<T>(path: string, init?: RequestOptions): Promis
 
   const ttl = init?.cacheOptions?.ttlMs ?? 0;
   const key = init?.cacheOptions?.key ?? path;
+  const generationAtStart = cacheGeneration;
 
   if (ttl > 0) {
     const hit = responseCache.get(key);
@@ -163,7 +168,7 @@ export async function apiRequest<T>(path: string, init?: RequestOptions): Promis
 
   const promise = performRequest<T>(path, init)
     .then((value) => {
-      if (ttl > 0) {
+      if (ttl > 0 && generationAtStart === cacheGeneration) {
         responseCache.set(key, { value, expiresAt: Date.now() + ttl });
       }
       return value;

@@ -26,7 +26,7 @@ const STEPS = [
   {
     id: 4,
     title: "Send pickup available",
-    hint: "After all confirm, notify that payment package (cheque/cash) is ready for the delivering transporter.",
+    hint: "After all confirm, notify that the payment package (cheque/cash) is ready at your location for pickup.",
   },
 ] as const;
 
@@ -80,7 +80,8 @@ export function PffOrderStepper({
           Advanced Payment (PFF) — your next steps
         </p>
         <p className="text-sm text-muted-foreground mt-1">
-          Round-trip payment flow: route cost includes the return leg (payment package delivery).
+          Round trip: transporters first collect payment from you → deliver to producer → then ship
+          goods back to you. Route totals include both legs.
         </p>
       </div>
 
@@ -164,8 +165,8 @@ export function PffOrderStepper({
 
       {active >= 5 && (
         <p className="text-xs text-green-700 dark:text-green-300">
-          Pickup available sent. Transporters will collect the payment package; the producer prepares
-          goods for handoff when notified.
+          Pickup available sent. Transporters will collect the payment package from you first and
+          deliver it to the producer. The producer will mark goods ready when payment arrives.
         </p>
       )}
 

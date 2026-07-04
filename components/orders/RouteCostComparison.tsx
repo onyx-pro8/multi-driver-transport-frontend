@@ -304,6 +304,7 @@ export function RouteCostComparison({
         tracking_status: updated.tracking_status,
         pickup_ready_at: updated.pickup_ready_at,
       });
+      await load(true);
       onMessage?.("Pickup available sent to transporters.");
     } catch (err) {
       onMessage?.(
@@ -405,11 +406,17 @@ export function RouteCostComparison({
                 </p>
               </div>
             )}
-            {data.is_pff_order && (data.pff_factor ?? 0) > 0 && (
+            {data.is_pff_order && (
               <p className="text-xs text-violet-800 dark:text-violet-200 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2">
-                PFF pricing: totals include round-trip factor × (1 +{" "}
-                {((data.pff_factor ?? 0) * 100).toFixed(0)}%) ={" "}
-                {(1 + (data.pff_factor ?? 0)).toFixed(2)}× base route cost.
+                PFF pricing: each route includes payment leg (receiver → producer) and goods leg
+                (producer → receiver).
+                {(data.pff_factor ?? 0) > 0 && (
+                  <>
+                    {" "}
+                    Payment leg cost is scaled by PFF factor ({((data.pff_factor ?? 0) * 100).toFixed(0)}
+                    %).
+                  </>
+                )}
               </p>
             )}
             <p className="text-xs text-muted-foreground">
@@ -421,6 +428,8 @@ export function RouteCostComparison({
                 package_type: data.package_type,
                 packages: data.packages ?? [],
                 package_factor: data.package_factor,
+                payment_method: order?.payment_method ?? (data.is_pff_order ? "pff" : undefined),
+                payment_packages: order?.payment_packages,
                 weight_lbs: data.package_weight_lbs,
                 package_length: null,
                 package_width: null,

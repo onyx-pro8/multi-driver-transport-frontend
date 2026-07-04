@@ -12,6 +12,7 @@ export const TRACKING_STATUS_LABELS: Record<TrackingStatus, string> = {
   PICKUP_AVAILABLE: "Pickup ready",
   PICKED_UP: "Picked up",
   IN_TRANSIT: "In transit",
+  PAYMENT_DELIVERED: "Payment delivered",
   DELIVERED: "Delivered",
 };
 
@@ -20,8 +21,10 @@ const TRACKING_STATUS_HINTS: Record<TrackingStatus, string> = {
   REJECTED: "The sender rejected this shipment request.",
   CONFIRMED: "Route confirmed by all transporters. Sender can mark the package as pick ready.",
   PICKUP_AVAILABLE: "Package is ready at the sender — waiting for the first transporter to pick up.",
-  PICKED_UP: "Package has been collected from the sender and is moving through the route.",
+  PICKED_UP: "Package has been collected and is moving through the route.",
   IN_TRANSIT: "Package is in transit through the multi-transporter chain toward the receiver.",
+  PAYMENT_DELIVERED:
+    "Payment reached the producer. Producer can mark goods ready for the return delivery leg.",
   DELIVERED: "Package has been delivered to the receiver.",
 };
 
@@ -46,6 +49,7 @@ function currentStepIndex(
   if (trackingStatus === "CONFIRMED" || trackingStatus === "PICKUP_AVAILABLE") return 1;
   if (trackingStatus === "PICKED_UP") return 2;
   if (trackingStatus === "IN_TRANSIT") return 3;
+  if (trackingStatus === "PAYMENT_DELIVERED") return 2;
   if (trackingStatus === "DELIVERED") return 4;
   return 1;
 }

@@ -10,11 +10,14 @@ import {
   LEG_STATUS_LABELS,
 } from "@/lib/deliveryProgress";
 import type { SegmentConfirmationDetail, TrackingStatus } from "@/types";
+import { isPffPaymentMethod } from "@/lib/paymentFlow";
 
 interface DeliveryProgressTimelineProps {
   segments: SegmentConfirmationDetail[];
   trackingStatus?: TrackingStatus;
   pickupReadyAt?: string | null;
+  goodsReadyAt?: string | null;
+  paymentMethod?: string;
   routeConfirmed?: boolean;
   showSenderReceiver?: boolean;
   className?: string;
@@ -24,16 +27,24 @@ export function DeliveryProgressTimeline({
   segments,
   trackingStatus = "CONFIRMED",
   pickupReadyAt = null,
+  goodsReadyAt = null,
+  paymentMethod,
   routeConfirmed = false,
   showSenderReceiver = true,
   className,
 }: DeliveryProgressTimelineProps) {
   const sorted = [...segments].sort((a, b) => a.segment_index - b.segment_index);
+  const isPff =
+    isPffPaymentMethod(paymentMethod) ||
+    sorted.some((s) => s.leg_phase === "payment" || s.leg_phase === "goods");
+  const progressOptions = { isPff, goodsReadyAt };
+
   const activePosition = getActiveDeliveryPosition(
     trackingStatus,
     pickupReadyAt,
     routeConfirmed,
-    sorted
+    sorted,
+    progressOptions
   );
 
   const nodes: {
@@ -48,8 +59,21 @@ export function DeliveryProgressTimeline({
     nodes.push({
       key: "sender",
       label: "Sender",
-      phase: getSenderNodeState(trackingStatus, pickupReadyAt, routeConfirmed, sorted),
-      sub: !pickupReadyAt && routeConfirmed ? "Pick ready" : undefined,
+      phase: getSenderNodeState(
+        trackingStatus,
+        pickupReadyAt,
+        routeConfirmed,
+        sorted,
+        progressOptions
+      ),
+      sub:
+        isPff && trackingStatus === "PAYMENT_DELIVERED" && !goodsReadyAt
+          ? "Goods ready"
+          : !pickupReadyAt && routeConfirmed && !isPff
+            ? "Pick ready"
+            : isPff && !pickupReadyAt && routeConfirmed
+              ? "Payment pickup"
+              : undefined,
     });
   }
 
@@ -57,7 +81,7 @@ export function DeliveryProgressTimeline({
     nodes.push({
       key: `seg-${seg.segment_id}`,
       label: seg.transporter_name,
-      sub: `${seg.from_label} → ${seg.to_label}`,
+      sub: `${seg.leg_phase === "payment" ? "Payment · " : seg.leg_phase === "goods" ? "Goods · " : ""}${seg.from_label} → ${seg.to_label}`,
       phase: getSegmentNodeState(seg, activePosition),
       legLabel:
         seg.leg_status !== "not_started" ? LEG_STATUS_LABELS[seg.leg_status] : undefined,
@@ -68,7 +92,10 @@ export function DeliveryProgressTimeline({
     nodes.push({
       key: "receiver",
       label: "Receiver",
-      phase: getReceiverNodeState(trackingStatus, routeConfirmed, sorted),
+      phase: getReceiverNodeState(trackingStatus, routeConfirmed, sorted, {
+        isPff,
+        pickupReadyAt,
+      }),
       sub: trackingStatus === "DELIVERED" ? "Delivered" : undefined,
     });
   }

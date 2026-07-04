@@ -34,6 +34,8 @@ const TRACKING_STATUS_STYLES: Record<TrackingStatus, string> = {
     "bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20",
   IN_TRANSIT:
     "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20",
+  PAYMENT_DELIVERED:
+    "bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/20",
   DELIVERED:
     "bg-green-500/10 text-green-700 dark:text-green-300 border border-green-500/20",
 };
@@ -45,6 +47,7 @@ const TRACKING_STATUS_LABEL: Record<TrackingStatus, string> = {
   PICKUP_AVAILABLE: "Pickup available",
   PICKED_UP: "Picked up",
   IN_TRANSIT: "In transit",
+  PAYMENT_DELIVERED: "Payment delivered",
   DELIVERED: "Delivered",
 };
 

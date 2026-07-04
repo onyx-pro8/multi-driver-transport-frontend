@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { PAYMENT_METHOD_OPTIONS } from "@/lib/paymentFlow";
+import { PAYMENT_METHOD_OPTIONS, isPffPaymentMethod } from "@/lib/paymentFlow";
 import { createReceiverOrder, listSenders } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Order, SenderSummary } from "@/types";
@@ -18,6 +18,13 @@ import {
   parsePackageFormEntries,
   type PackageFormEntry,
 } from "@/components/orders/PackageListFields";
+import { PaymentPackageFields } from "@/components/orders/PaymentPackageFields";
+import {
+  defaultPaymentPackageEntry,
+  paymentPackageFormEntryFromOrder,
+  parsePaymentPackageFormEntries,
+  type PaymentPackageFormEntry,
+} from "@/lib/paymentPackages";
 import { defaultOrderPackageEntry } from "@/lib/pricing";
 
 interface Props {
@@ -51,6 +58,9 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
   const [paymentMethod, setPaymentMethod] = useState("cod");
   const [packages, setPackages] = useState<PackageFormEntry[]>([
     packageFormEntryFromOrder(defaultOrderPackageEntry()),
+  ]);
+  const [paymentPackages, setPaymentPackages] = useState<PaymentPackageFormEntry[]>([
+    paymentPackageFormEntryFromOrder(defaultPaymentPackageEntry()),
   ]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -158,6 +168,17 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
       return;
     }
 
+    const isPff = isPffPaymentMethod(paymentMethod);
+    let parsedPaymentPackages: import("@/lib/paymentPackages").PaymentPackageEntry[] | undefined;
+    if (isPff) {
+      const paymentResult = parsePaymentPackageFormEntries(paymentPackages);
+      if (!paymentResult.ok) {
+        onMessage(paymentResult.message, "error");
+        return;
+      }
+      parsedPaymentPackages = paymentResult.packages;
+    }
+
     setSubmitting(true);
     try {
       const order = await createReceiverOrder({
@@ -170,6 +191,7 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
         payment_method: paymentMethod || undefined,
         package_description: packageDescription.trim() || undefined,
         packages: parsedPackages.packages,
+        payment_packages: parsedPaymentPackages,
       });
       onMessage("Shipment request submitted.", "success");
       onCreated(order);
@@ -179,6 +201,7 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
       setNotes("");
       setPackageDescription("");
       setPackages([packageFormEntryFromOrder(defaultOrderPackageEntry())]);
+      setPaymentPackages([paymentPackageFormEntryFromOrder(defaultPaymentPackageEntry())]);
     } catch (err) {
       onMessage(err instanceof Error ? err.message : "Failed to submit shipment request", "error");
     } finally {
@@ -304,6 +327,10 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
           goods ship.
         </p>
       </div>
+
+      {isPffPaymentMethod(paymentMethod) ? (
+        <PaymentPackageFields packages={paymentPackages} onChange={setPaymentPackages} />
+      ) : null}
 
       <div>
         <Label>Notes (optional)</Label>

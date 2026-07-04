@@ -567,6 +567,14 @@ export function updateOrderTrackingStatus(
   });
 }
 
+export function notifyPaymentPickedUpToSender(
+  orderId: number
+): Promise<import("@/types").OrderTrackingStatus> {
+  return apiRequest(`/api/orders/${orderId}/notify-payment-pickup`, {
+    method: "POST",
+  });
+}
+
 export function getSenderOrderView(orderId: number): Promise<import("@/types").SenderOrderView> {
   return apiRequest(`/api/orders/${orderId}/sender-view`, {
     cacheOptions: { ttlMs: TTL_LIST },

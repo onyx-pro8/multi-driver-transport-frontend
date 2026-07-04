@@ -9,6 +9,9 @@ import { confirmSegment, rejectSegment, updateSegmentLegStatus, applyManualSegme
 import {
   canSegmentMarkInTransit,
   canSegmentMarkPickedUp,
+  pffHandoffRoleLabel,
+  pffLegPhaseLabel,
+  segmentActionBlockedReason,
   SEGMENT_LEG_LABELS,
 } from "@/lib/trackingActions";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -58,11 +61,12 @@ interface RouteGroup {
 
 interface ConfirmationPanelProps {
   items: TransporterConfirmationItem[];
-  onUpdated?: () => void;
+  onUpdated?: () => void | Promise<void>;
+  onPatchItem?: (segmentId: number, patch: Partial<TransporterConfirmationItem>) => void;
   onMessage?: (text: string, type?: "success" | "error") => void;
 }
 
-export function ConfirmationPanel({ items, onUpdated, onMessage }: ConfirmationPanelProps) {
+export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: ConfirmationPanelProps) {
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -131,6 +135,7 @@ export function ConfirmationPanel({ items, onUpdated, onMessage }: ConfirmationP
     setActingId(segmentId);
     try {
       await confirmSegment(segmentId);
+      onPatchItem?.(segmentId, { status: "accepted" });
       onMessage?.("Segment accepted.");
       onUpdated?.();
     } catch (err) {
@@ -144,6 +149,10 @@ export function ConfirmationPanel({ items, onUpdated, onMessage }: ConfirmationP
     setActingId(segmentId);
     try {
       await rejectSegment(segmentId, rejectReason);
+      onPatchItem?.(segmentId, {
+        status: "rejected",
+        rejection_reason: rejectReason.trim() || null,
+      });
       onMessage?.("Segment rejected.");
       setRejectingId(null);
       setRejectReason("");
@@ -162,12 +171,13 @@ export function ConfirmationPanel({ items, onUpdated, onMessage }: ConfirmationP
     setLegUpdatingId(segmentId);
     try {
       await updateSegmentLegStatus(segmentId, legStatus);
+      onPatchItem?.(segmentId, { leg_status: legStatus });
       onMessage?.(
         legStatus === "picked_up"
           ? "Segment marked as picked up."
           : "Segment marked as in transit."
       );
-      onUpdated?.();
+      await onUpdated?.();
     } catch (err) {
       onMessage?.(err instanceof Error ? err.message : "Failed to update segment status", "error");
     } finally {
@@ -368,6 +378,8 @@ function SegmentCard({
   const showPickedUp = canSegmentMarkPickedUp(item);
   const showInTransit = canSegmentMarkInTransit(item);
   const legUpdating = legUpdatingId === item.segment_id;
+  const handoffLabel = pffHandoffRoleLabel(item.handoff_role);
+  const blockedReason = segmentActionBlockedReason(item);
 
   return (
     <Card>
@@ -375,8 +387,18 @@ function SegmentCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <CardTitle className="text-base">
+              {item.leg_phase ? (
+                <span className="text-violet-700 dark:text-violet-300 text-xs font-medium uppercase tracking-wide block mb-0.5">
+                  {pffLegPhaseLabel(item.leg_phase)}
+                </span>
+              ) : null}
               Segment {item.segment_index + 1}: {item.from_label} → {item.to_label}
             </CardTitle>
+            {handoffLabel ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 font-medium">
+                {handoffLabel}
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground mt-1">
               Request sent: {new Date(item.sent_at).toLocaleString()}
             </p>
@@ -464,6 +486,9 @@ function SegmentCard({
                 {legUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : "In transit"}
               </Button>
             )}
+            {blockedReason ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300">{blockedReason}</p>
+            ) : null}
           </div>
         )}
 

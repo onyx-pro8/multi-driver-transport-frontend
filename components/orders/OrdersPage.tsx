@@ -6,12 +6,11 @@ import { CheckCircle2, Clock, Package, Route, Send, XCircle } from "lucide-react
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listOrders, connectOrder, rejectOrder, updateOrderTrackingStatus } from "@/lib/api";
+import { listOrders, connectOrder, rejectOrder, notifyPaymentPickedUpToSender, updateOrderTrackingStatus } from "@/lib/api";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
 import { shipmentRef } from "@/lib/entityLabels";
 import { showToast } from "@/lib/toast";
-import { getDeliveryStatusLabel } from "@/components/orders/DeliveryStatusStepper";
-import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff } from "@/lib/trackingActions";
+import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff, canReceiverNotifyPaymentPickedUp, canSenderMarkGoodsReadyForPff } from "@/lib/trackingActions";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order, TrackingStatus } from "@/types";
 import { ReceiverNewOrderForm } from "./ReceiverNewOrderForm";
@@ -151,21 +150,24 @@ export function OrdersPage() {
     }
   }
 
+  async function handleNotifyPaymentPickup(order: Order) {
+    setUpdating(order.id);
+    try {
+      await notifyPaymentPickedUpToSender(order.id);
+      await refresh();
+      showMessage("Producer notified that payment was collected.");
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : "Notification failed", "error");
+    } finally {
+      setUpdating(null);
+    }
+  }
+
   async function handleTrackingAction(order: Order, status: TrackingStatus) {
     setUpdating(order.id);
     try {
-      const result = await updateOrderTrackingStatus(order.id, status);
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === order.id
-            ? {
-                ...o,
-                tracking_status: result.tracking_status,
-                pickup_ready_at: result.pickup_ready_at,
-              }
-            : o
-        )
-      );
+      await updateOrderTrackingStatus(order.id, status);
+      await refresh();
       showMessage(
         status === "PICKUP_AVAILABLE"
           ? "Pickup marked as ready."
@@ -303,13 +305,7 @@ export function OrdersPage() {
                           ) : isAwaitingConnect(order) ? (
                             <span className="text-xs text-muted-foreground">Not started</span>
                           ) : order.route_selection_status === "confirmed" ? (
-                            <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                              {getDeliveryStatusLabel(
-                                true,
-                                order.pickup_ready_at,
-                                order.tracking_status
-                              )}
-                            </span>
+                            <TrackingStatusBadge status={order.tracking_status} />
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
@@ -344,7 +340,26 @@ export function OrdersPage() {
                                 disabled={updating === order.id}
                                 onClick={() => void handleTrackingAction(order, "PICKUP_AVAILABLE")}
                               >
-                                {updating === order.id ? "Updating…" : "Pickup available"}
+                                {updating === order.id ? "Updating…" : "Payment pickup available"}
+                              </Button>
+                            )}
+                            {isReceiver && canReceiverNotifyPaymentPickedUp(order) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updating === order.id}
+                                onClick={() => void handleNotifyPaymentPickup(order)}
+                              >
+                                {updating === order.id ? "Sending…" : "Notify producer"}
+                              </Button>
+                            )}
+                            {isSender && canSenderMarkGoodsReadyForPff(order) && (
+                              <Button
+                                size="sm"
+                                disabled={updating === order.id}
+                                onClick={() => void handleTrackingAction(order, "PICKUP_AVAILABLE")}
+                              >
+                                {updating === order.id ? "Updating…" : "Goods ready"}
                               </Button>
                             )}
                             {isReceiver &&

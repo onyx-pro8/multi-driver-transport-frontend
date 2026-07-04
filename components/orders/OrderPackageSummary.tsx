@@ -8,6 +8,14 @@ import {
   type OrderPackageEntry,
   type PackageType,
 } from "@/lib/pricing";
+import {
+  PAYMENT_PACKAGE_TYPE_LABELS,
+  defaultPaymentPackageEntry,
+  formatPaymentPackageDimensions,
+  type PaymentPackageEntry,
+  type PaymentPackageType,
+} from "@/lib/paymentPackages";
+import { isPffPaymentMethod } from "@/lib/paymentFlow";
 
 function resolvePackages(order: Pick<Order, "package_type" | "packages" | "weight_lbs" | "package_length" | "package_width" | "package_height">): OrderPackageEntry[] {
   if (order.packages?.length) {
@@ -47,9 +55,19 @@ export function OrderPackageSummary({
     | "package_height"
     | "dimensions"
     | "package_description"
-  >;
+  > & {
+    payment_method?: string | null;
+    payment_packages?: PaymentPackageEntry[];
+  };
 }) {
   const packages = resolvePackages(order);
+  const isPff = isPffPaymentMethod(order.payment_method);
+  const paymentPackages: PaymentPackageEntry[] =
+    isPff && order.payment_packages?.length
+      ? order.payment_packages
+      : isPff
+        ? [defaultPaymentPackageEntry()]
+        : [];
   const totals =
     packages.length > 0
       ? rollupOrderTotalsFromPackages(packages)
@@ -79,6 +97,9 @@ export function OrderPackageSummary({
 
       {packages.length > 0 ? (
         <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Goods packages
+          </p>
           {packages.map((pkg, index) => (
             <div
               key={index}
@@ -96,6 +117,28 @@ export function OrderPackageSummary({
       ) : (
         <p className="text-muted-foreground">Package details not set</p>
       )}
+
+      {paymentPackages.length > 0 ? (
+        <div className="space-y-2 pt-1 border-t border-border/50">
+          <p className="text-xs font-medium text-violet-700 dark:text-violet-300 uppercase tracking-wide">
+            Payment packages (PFF)
+          </p>
+          {paymentPackages.map((pkg, index) => (
+            <div
+              key={`payment-${index}`}
+              className="rounded-md border border-violet-500/20 bg-violet-500/5 px-2 py-1.5"
+            >
+              <p className="font-medium">
+                Payment {index + 1}:{" "}
+                {PAYMENT_PACKAGE_TYPE_LABELS[pkg.payment_type as PaymentPackageType]}
+              </p>
+              <p className="text-muted-foreground">
+                {pkg.description} · {pkg.weight_lbs} lb · {formatPaymentPackageDimensions(pkg)}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {order.package_description ? (
         <div>

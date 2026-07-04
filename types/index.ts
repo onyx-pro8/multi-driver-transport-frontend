@@ -52,6 +52,7 @@ export interface HubTerminal {
 }
 
 import type { PackageType, OrderPackageEntry } from "@/lib/pricing";
+import type { PaymentPackageEntry } from "@/lib/paymentPackages";
 
 export type ZonePricingMode = "system" | "manual";
 
@@ -253,6 +254,8 @@ export interface Order {
   package_type: PackageType | null;
   packages: OrderPackageEntry[];
   package_factor: number | null;
+  payment_packages?: PaymentPackageEntry[];
+  payment_pickup_notified_at?: string | null;
   weight_lbs: number | null;
   package_weight_unit: string;
   package_length: number | null;
@@ -263,6 +266,7 @@ export interface Order {
   status: OrderStatus;
   tracking_status: TrackingStatus;
   pickup_ready_at?: string | null;
+  goods_ready_at?: string | null;
   route_schedule_at?: string | null;
   route_selection_status?: RouteSelectionStatus | null;
   selected_route_id?: number | null;
@@ -298,6 +302,7 @@ export interface CreateOrderRequest {
   /** @deprecated Prefer `packages` */
   package_type?: PackageType;
   packages?: OrderPackageEntry[];
+  payment_packages?: PaymentPackageEntry[];
   weight_lbs?: number | null;
   package_length?: number | null;
   package_width?: number | null;
@@ -318,6 +323,7 @@ export interface CreateReceiverOrderRequest {
   package_description?: string;
   package_type?: PackageType;
   packages?: OrderPackageEntry[];
+  payment_packages?: PaymentPackageEntry[];
   weight_lbs?: number | null;
   package_length?: number | null;
   package_width?: number | null;
@@ -328,6 +334,7 @@ export interface CreateReceiverOrderRequest {
 export interface UpdateOrderPackageRequest {
   package_type?: PackageType;
   packages?: OrderPackageEntry[];
+  payment_packages?: PaymentPackageEntry[];
   weight_lbs?: number | null;
   package_length?: number | null;
   package_width?: number | null;
@@ -820,6 +827,9 @@ export interface SegmentCostBreakdown {
   total_cost: number;
 }
 
+export type PffLegPhase = "payment" | "goods";
+export type PffHandoffRole = "payment_delivery" | "goods_pickup";
+
 export interface RouteSegmentCost {
   segment_id: number;
   segment_index: number;
@@ -829,6 +839,8 @@ export interface RouteSegmentCost {
   from_label: string;
   to_node_id: string;
   to_label: string;
+  leg_phase?: PffLegPhase | null;
+  handoff_role?: PffHandoffRole | null;
   transport_method: string;
   zone_id: number | null;
   zone_pricing_mode: ZonePricingMode | null;
@@ -951,6 +963,8 @@ export interface SegmentConfirmationDetail {
   from_label: string;
   to_node_id: string;
   to_label: string;
+  leg_phase?: PffLegPhase | null;
+  handoff_role?: PffHandoffRole | null;
   status: SegmentConfirmationStatus;
   leg_status: SegmentLegStatus;
   rejection_reason: string | null;
@@ -979,6 +993,8 @@ export interface TransporterConfirmationItem {
   order_id: number;
   segment_id: number;
   segment_index: number;
+  leg_phase?: PffLegPhase | null;
+  handoff_role?: PffHandoffRole | null;
   from_label: string;
   to_label: string;
   status: SegmentConfirmationStatus;
@@ -991,6 +1007,8 @@ export interface TransporterConfirmationItem {
   route_selection_status: RouteSelectionStatus | null;
   order_tracking_status: TrackingStatus;
   pickup_ready_at: string | null;
+  goods_ready_at?: string | null;
+  payment_method?: string;
   route_segment_count: number;
   previous_leg_status: SegmentLegStatus | null;
   final_cost: number | null;
@@ -1009,6 +1027,7 @@ export type TrackingStatus =
   | "PICKUP_AVAILABLE"
   | "PICKED_UP"
   | "IN_TRANSIT"
+  | "PAYMENT_DELIVERED"
   | "DELIVERED";
 
 export interface OrderStatusHistoryEntry {
