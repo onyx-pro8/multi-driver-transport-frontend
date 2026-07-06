@@ -28,6 +28,7 @@ import {
 import { isHubMode, normalizeTransportMode } from "@/lib/transportMode";
 import { cn } from "@/lib/utils";
 import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
+import { GapBridgeCandidates } from "@/components/orders/GapBridgeCandidates";
 import type {
   ConvertH3Response,
   DriverZone,
@@ -444,7 +445,7 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
           <Metric label="Transfer cells" value={preview.transfer_cells.length} />
         </div>
 
-        {(preview.schedule_inactive_zones?.length ?? 0) > 0 && (
+        {(preview.schedule_inactive_zones?.length ?? 0) > 0 && !preview.gap && (
           <ScheduleInactiveNotice zones={preview.schedule_inactive_zones ?? []} />
         )}
 
@@ -651,6 +652,13 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
               <AlertTriangle className="h-3.5 w-3.5" />
               Incomplete route — no full path yet
             </div>
+            {(preview.schedule_inactive_zones?.length ?? 0) > 0 && (
+              <ScheduleInactiveNotice
+                zones={preview.schedule_inactive_zones ?? []}
+                emphasized
+                className="border-amber-400/40"
+              />
+            )}
             <p className="text-xs text-muted-foreground">{preview.gap.message}</p>
 
             {preview.gap.pickup_chain && preview.gap.pickup_chain.zone_ids.length > 0 && (
@@ -673,17 +681,10 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
 
             <div className="flex items-center gap-1.5 pl-1 text-[11px] font-medium text-amber-700 dark:text-amber-300">
               <Unlink className="h-3.5 w-3.5" />
-              <span>
-                Gap ≈ {preview.gap.distance_km ?? "?"} km
-                {preview.gap.suggested_zone_name
-                  ? ` · nearest zone to bridge: ${
-                      preview.gap.suggested_transport_name
-                        ? `${preview.gap.suggested_transport_name} · `
-                        : ""
-                    }${preview.gap.suggested_zone_name}`
-                  : ""}
-              </span>
+              <span>Gap ≈ {preview.gap.distance_km ?? "?"} km</span>
             </div>
+
+            <GapBridgeCandidates gap={preview.gap} />
 
             {preview.gap.destination_chain &&
               preview.gap.destination_chain.zone_ids.length > 0 && (

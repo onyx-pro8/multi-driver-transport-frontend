@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, Loader2, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Clock, Loader2, Package, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,8 @@ import type { RouteConfirmationStatus, SegmentCostStatus, TransporterConfirmatio
 import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
 import { OrderProgressBar } from "@/components/orders/SegmentTimeline";
 import { canTrackOrder, TrackOrderLink } from "@/components/orders/TrackOrderLink";
+import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
+import { PACKAGE_TYPE_LABELS } from "@/lib/pricing";
 
 const SEGMENT_COST_LABEL: Record<SegmentCostStatus, string> = {
   calculated: "Calculated",
@@ -41,6 +43,81 @@ function transporterSegmentCostTotal(items: TransporterConfirmationItem[]): stri
   return formatCurrency(total, priced[0].currency);
 }
 
+function formatShipmentPackageSummary(
+  item: TransporterConfirmationItem | undefined,
+): string | null {
+  if (!item) return null;
+  const parts: string[] = [];
+  if (item.package_type) {
+    const label =
+      PACKAGE_TYPE_LABELS[item.package_type as keyof typeof PACKAGE_TYPE_LABELS] ??
+      item.package_type.replace(/_/g, " ");
+    parts.push(label);
+  }
+  if (item.package_weight_lbs != null) {
+    parts.push(`${item.package_weight_lbs} lb`);
+  }
+  if (item.package_dimensions_in) {
+    parts.push(item.package_dimensions_in);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function ShipmentPackageDetails({ item }: { item: TransporterConfirmationItem }) {
+  const summary = formatShipmentPackageSummary(item);
+  if (!summary) {
+    return (
+      <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+        Package weight and dimensions not provided — ask the sender if you need them to quote.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Shipment details
+      </p>
+      <p className="text-sm mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Package className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span>{summary}</span>
+      </p>
+    </div>
+  );
+}
+
+function SegmentAvailabilityBadge({ item }: { item: TransporterConfirmationItem }) {
+  if (item.zone_schedule_active === false) {
+    return (
+      <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs text-sky-950 dark:text-sky-100 space-y-1">
+        <p className="font-medium flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          Not available now
+        </p>
+        {item.zone_schedule_inactive_reason ? (
+          <p className="font-medium">{item.zone_schedule_inactive_reason}</p>
+        ) : (
+          <p>Your zone is outside operating hours.</p>
+        )}
+        {item.zone_schedule_summary ? (
+          <p className="text-muted-foreground">When open: {item.zone_schedule_summary}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (item.zone_schedule_active === true && item.zone_schedule_summary) {
+    return (
+      <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+        <Clock className="h-3.5 w-3.5 shrink-0" />
+        Available now · {item.zone_schedule_summary}
+      </p>
+    );
+  }
+
+  return null;
+}
+
 const SEGMENT_STATUS_BADGE: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20",
   accepted: "bg-green-500/10 text-green-700 dark:text-green-300 border border-green-500/20",
@@ -57,6 +134,8 @@ interface RouteGroup {
   pendingCount: number;
   acceptedCount: number;
   rejectedCount: number;
+  schedule_inactive_zones: TransporterConfirmationItem["schedule_inactive_zones"];
+  route_is_complete: boolean;
 }
 
 interface ConfirmationPanelProps {
@@ -90,6 +169,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
           pendingCount: 0,
           acceptedCount: 0,
           rejectedCount: 0,
+          schedule_inactive_zones: item.schedule_inactive_zones ?? [],
+          route_is_complete: item.route_is_complete !== false,
         };
         map.set(item.route_id, group);
       }
@@ -197,6 +278,9 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
 
   if (selectedGroup) {
     const trackingItem = selectedGroup.items[0];
+    const hasRouteAvailabilityIssue =
+      !selectedGroup.route_is_complete ||
+      (selectedGroup.schedule_inactive_zones?.length ?? 0) > 0;
 
     return (
       <div className="space-y-4">
@@ -229,6 +313,12 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   {selectedGroup.pendingCount} pending · {selectedGroup.acceptedCount} accepted ·{" "}
                   {selectedGroup.rejectedCount} rejected
                 </p>
+                {formatShipmentPackageSummary(trackingItem) && (
+                  <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
+                    <Package className="h-3 w-3 shrink-0" />
+                    {formatShipmentPackageSummary(trackingItem)}
+                  </p>
+                )}
                 {trackingItem.route_selection_status === "confirmed" && (
                   <div className="flex flex-wrap items-center gap-2 pt-2">
                     {trackingItem.pickup_ready_at ? (
@@ -245,6 +335,23 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
             </div>
           </CardHeader>
         </Card>
+
+        {hasRouteAvailabilityIssue && (
+          <div className="space-y-3">
+            {!selectedGroup.route_is_complete && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+                <p className="font-medium">Route may be incomplete</p>
+                <p className="text-xs mt-1 opacity-90">
+                  This path may not fully connect pickup to destination. Confirm your segment
+                  cost only if you can cover your leg when the route is active.
+                </p>
+              </div>
+            )}
+            {(selectedGroup.schedule_inactive_zones?.length ?? 0) > 0 && (
+              <ScheduleInactiveNotice zones={selectedGroup.schedule_inactive_zones ?? []} />
+            )}
+          </div>
+        )}
 
         {selectedGroup.items
           .sort((a, b) => a.segment_index - b.segment_index)
@@ -289,6 +396,9 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
       {routeGroups.map((group) => {
         const segmentCostTotal = transporterSegmentCostTotal(group.items);
         const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
+        const hasAvailabilityIssue =
+          !group.route_is_complete || (group.schedule_inactive_zones?.length ?? 0) > 0;
+        const packageSummary = formatShipmentPackageSummary(group.items[0]);
         return (
         <Card
           key={group.route_id}
@@ -304,6 +414,12 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                 <p className="text-xs text-muted-foreground mt-1 truncate">
                   {group.sender_address || "—"} → {group.destination_address || "—"}
                 </p>
+                {packageSummary && (
+                  <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
+                    <Package className="h-3 w-3 shrink-0" />
+                    {packageSummary}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground mt-1">
                   {group.items.length} segment{group.items.length === 1 ? "" : "s"}
                   {group.pendingCount > 0 && (
@@ -314,6 +430,12 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   {segmentCostTotal && (
                     <span className="ml-2 font-medium text-foreground">
                       · Your cost: {segmentCostTotal}
+                    </span>
+                  )}
+                  {hasAvailabilityIssue && (
+                    <span className="ml-2 inline-flex items-center gap-1 text-sky-700 dark:text-sky-300 font-medium">
+                      <Clock className="h-3 w-3" />
+                      Route availability limited
                     </span>
                   )}
                 </p>
@@ -380,9 +502,14 @@ function SegmentCard({
   const legUpdating = legUpdatingId === item.segment_id;
   const handoffLabel = pffHandoffRoleLabel(item.handoff_role);
   const blockedReason = segmentActionBlockedReason(item);
+  const segmentUnavailable = item.zone_schedule_active === false;
 
   return (
-    <Card>
+    <Card
+      className={cn(
+        segmentUnavailable && "border-sky-500/40 ring-1 ring-sky-500/20",
+      )}
+    >
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -402,7 +529,8 @@ function SegmentCard({
             <p className="text-xs text-muted-foreground mt-1">
               Request sent: {new Date(item.sent_at).toLocaleString()}
             </p>
-            <p className="text-sm font-medium mt-2">Your segment cost</p>
+            <ShipmentPackageDetails item={item} />
+            <p className="text-sm font-medium mt-3">Your segment cost</p>
             {item.status === "pending" ? (
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <Input
@@ -454,6 +582,8 @@ function SegmentCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <SegmentAvailabilityBadge item={item} />
+
         {item.status === "accepted" && item.route_selection_status === "confirmed" && (
           <div className="flex flex-wrap items-center gap-2">
             <span

@@ -41,6 +41,7 @@ import type {
 import { RouteStatusBadge } from "@/components/orders/RouteStatusBadge";
 import { RouteConfirmationStatusPanel } from "@/components/orders/ConfirmationPanel";
 import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
+import { GapBridgeCandidates } from "@/components/orders/GapBridgeCandidates";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
@@ -136,14 +137,19 @@ export function RouteCostComparison({
         const comparison = await getOrderRouteCostComparison(orderId);
         setData(comparison);
         hasDataRef.current = true;
-        try {
-          const selection = await getSelectedRoute(orderId);
-          setSelectedRoute(selection);
-          const status = await getRouteConfirmationStatus(
-            selection.selected_route_id,
-          );
-          setConfirmation(status);
-        } catch {
+        if (comparison.is_route_complete !== false) {
+          try {
+            const selection = await getSelectedRoute(orderId);
+            setSelectedRoute(selection);
+            const status = await getRouteConfirmationStatus(
+              selection.selected_route_id,
+            );
+            setConfirmation(status);
+          } catch {
+            setSelectedRoute(null);
+            setConfirmation(null);
+          }
+        } else {
           setSelectedRoute(null);
           setConfirmation(null);
         }
@@ -229,7 +235,11 @@ export function RouteCostComparison({
           route_schedule_at: comparison.route_schedule_at ?? scheduleAt,
         });
       }
-      onMessage?.("Route costs recalculated.");
+      onMessage?.(
+        comparison.is_route_complete === false
+          ? "No complete route at this time — costs were not calculated."
+          : "Route costs recalculated.",
+      );
     } catch (err) {
       onMessage?.(
         err instanceof Error ? err.message : "Recalculation failed",
@@ -316,6 +326,8 @@ export function RouteCostComparison({
     }
   }
 
+  const routeIncomplete = data?.is_route_complete === false && !data?.route_locked;
+
   if (loading) {
     return (
       <Card>
@@ -333,13 +345,19 @@ export function RouteCostComparison({
         <div>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
-            {isDriver ? "Your Zone Costs" : "Route Cost Comparison"}
+            {routeIncomplete
+              ? "Route status"
+              : isDriver
+                ? "Your Zone Costs"
+                : "Route Cost Comparison"}
             {refreshing && (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             )}
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            {isDriver
+            {routeIncomplete
+              ? "This order has no complete pickup-to-drop-off path right now, so route costs are not calculated."
+              : isDriver
               ? "Costs for your zone segments only. Other transporters on the same route are not shown."
               : `Pricing engine: (base × package factor) + traveling + waiting + booking fee${
                   data
@@ -367,7 +385,7 @@ export function RouteCostComparison({
           ) : (
             <RefreshCw className="h-4 w-4" />
           )}
-          Recalculate Costs
+          {routeIncomplete ? "Check route time" : "Recalculate Costs"}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -447,11 +465,28 @@ export function RouteCostComparison({
             or schedules have changed.
           </div>
         )}
+        {data?.is_route_complete === false && !data.route_locked && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-3 text-sm text-amber-950 dark:text-amber-100">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium">Route incomplete — costs not calculated</p>
+                <p className="text-xs opacity-90">
+                  There is no full pickup-to-drop-off path at the selected time. Fix the gap
+                  below or choose a different route time, then recalculate.
+                </p>
+              </div>
+            </div>
+            {data.gap ? <GapBridgeCandidates gap={data.gap} /> : null}
+          </div>
+        )}
         {!data || data.routes.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             {data?.route_locked
               ? "No saved route data found for this order."
-              : "No complete routes found for this order. Ensure pickup and destination are covered by connected transport zones that are within their operating hours, then recalculate."}
+              : data?.is_route_complete === false
+                ? "No costs to show until a complete route exists."
+                : "No complete routes found for this order. Ensure pickup and destination are covered by connected transport zones that are within their operating hours, then recalculate."}
           </p>
         ) : (
           data.routes.map((route) => (

@@ -563,6 +563,19 @@ export interface OrderDraftGap {
   suggested_transport_name: string | null;
   suggested_zone_name: string | null;
   message: string;
+  bridge_candidates?: GapBridgeCandidate[];
+  bridge_message?: string | null;
+}
+
+export interface GapBridgeCandidate {
+  zone_id: number;
+  zone_name: string;
+  transport_name: string;
+  schedule_active: boolean;
+  schedule_summary: string | null;
+  inactive_reason: string | null;
+  on_pickup_side: boolean;
+  on_destination_side: boolean;
 }
 
 export interface OrderDraftPreview {
@@ -590,6 +603,7 @@ export interface ScheduleInactiveZone {
   zone_name: string;
   transport_name: string;
   schedule_summary: string | null;
+  inactive_reason?: string | null;
   covers: "pickup" | "destination" | "both";
 }
 
@@ -900,6 +914,8 @@ export interface OrderRouteCostComparison {
   route_lock_reason?: "confirmed_route" | "delivery_in_progress" | null;
   schedule_inactive_zones?: ScheduleInactiveZone[];
   route_schedule_at?: string | null;
+  is_route_complete?: boolean;
+  gap?: OrderDraftGap | null;
 }
 
 export interface TransporterQuoteRequest {
@@ -1014,6 +1030,15 @@ export interface TransporterConfirmationItem {
   final_cost: number | null;
   currency: string;
   cost_status: SegmentCostStatus;
+  package_type?: string | null;
+  package_weight_lbs?: number | null;
+  package_dimensions_in?: string | null;
+  route_is_complete?: boolean;
+  schedule_inactive_zones?: ScheduleInactiveZone[];
+  zone_id?: number | null;
+  zone_schedule_active?: boolean | null;
+  zone_schedule_summary?: string | null;
+  zone_schedule_inactive_reason?: string | null;
 }
 
 // --------------------------------------------------------------------------
@@ -1080,7 +1105,16 @@ export interface TransporterOrderViewItem {
     confirmation_status: string;
     cost_status: string;
     final_cost: number | null;
+    package_weight_lbs?: number | null;
+    package_dimensions_in?: string | null;
+    zone_schedule_active?: boolean | null;
+    zone_schedule_summary?: string | null;
+    zone_schedule_inactive_reason?: string | null;
   }[];
+  package_type?: string | null;
+  package_weight_lbs?: number | null;
+  package_dimensions_in?: string | null;
+  schedule_inactive_zones?: ScheduleInactiveZone[];
   upstream_transporter: string | null;
   downstream_transporter: string | null;
 }
