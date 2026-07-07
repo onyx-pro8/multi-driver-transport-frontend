@@ -22,9 +22,8 @@ export function canMarkPickReady(order: {
   );
 }
 
-/** PFF orders: receiver marks payment pickup available after route confirmation. */
+/** PFF orders: receiver marks payment pickup available after both routes are confirmed. */
 export function canReceiverMarkPickReadyForPff(order: {
-  route_selection_status?: string | null;
   pickup_ready_at?: string | null;
   tracking_status?: string;
   payment_method?: string;
@@ -32,22 +31,19 @@ export function canReceiverMarkPickReadyForPff(order: {
   if (!isPffPaymentMethod(order.payment_method)) return false;
   return (
     order.tracking_status !== "AWAITING_CONNECT" &&
-    isRouteConfirmed(order.route_selection_status) &&
-    !order.pickup_ready_at &&
-    (order.tracking_status === "CONFIRMED" || !order.tracking_status)
+    order.tracking_status === "ROUTES_READY" &&
+    !order.pickup_ready_at
   );
 }
 
 /** PFF orders: sender marks goods ready after payment is delivered to producer. */
 export function canSenderMarkGoodsReadyForPff(order: {
-  route_selection_status?: string | null;
   goods_ready_at?: string | null;
   tracking_status?: string;
   payment_method?: string;
 }): boolean {
   if (!isPffPaymentMethod(order.payment_method)) return false;
   return (
-    isRouteConfirmed(order.route_selection_status) &&
     !order.goods_ready_at &&
     order.tracking_status === "PAYMENT_DELIVERED"
   );
@@ -61,10 +57,16 @@ export function canMarkDelivered(order: {
   payment_method?: string;
 }): boolean {
   const isPff = isPffPaymentMethod(order.payment_method);
+  if (isPff) {
+    return (
+      Boolean(order.pickup_ready_at) &&
+      Boolean(order.goods_ready_at) &&
+      order.tracking_status === "IN_TRANSIT"
+    );
+  }
   return (
     isRouteConfirmed(order.route_selection_status) &&
     Boolean(order.pickup_ready_at) &&
-    (!isPff || Boolean(order.goods_ready_at)) &&
     order.tracking_status === "IN_TRANSIT"
   );
 }
@@ -75,19 +77,22 @@ export const SEGMENT_LEG_LABELS: Record<SegmentLegStatus, string> = {
   in_transit: "In transit",
 };
 
-function paymentLegCount(item: TransporterConfirmationItem): number {
-  if (!isPffPaymentMethod(item.payment_method)) return 0;
-  return Math.floor(item.route_segment_count / 2);
+function isDualRoutePffItem(item: TransporterConfirmationItem): boolean {
+  return (
+    isPffPaymentMethod(item.payment_method) &&
+    (item.leg_phase === "payment" || item.leg_phase === "goods")
+  );
 }
 
 function isPhaseFirstSegment(item: TransporterConfirmationItem): boolean {
-  const phase = item.leg_phase;
-  if (phase === "payment") return item.segment_index === 0;
-  if (phase === "goods") {
-    const payCount = paymentLegCount(item);
-    return payCount > 0 && item.segment_index === payCount;
+  if (isDualRoutePffItem(item)) {
+    return item.segment_index === 0;
   }
   return item.segment_index === 0;
+}
+
+function isSecondInPhase(item: TransporterConfirmationItem): boolean {
+  return item.segment_index === 1;
 }
 
 function pickupGateOpen(item: TransporterConfirmationItem): boolean {
@@ -114,16 +119,9 @@ export function canSegmentMarkInTransit(item: TransporterConfirmationItem): bool
   if (item.leg_status !== "not_started") return false;
 
   const prev = item.previous_leg_status;
-  const phase = item.leg_phase;
-  const payCount = paymentLegCount(item);
-  const isSecondInPhase =
-    phase === "payment"
-      ? item.segment_index === 1
-      : phase === "goods"
-        ? item.segment_index === payCount + 1
-        : item.segment_index === 1;
+  const isSecond = isSecondInPhase(item);
 
-  if (isSecondInPhase) {
+  if (isSecond) {
     return prev === "picked_up";
   }
   return prev === "in_transit";
@@ -198,6 +196,8 @@ export const TRACKING_ACTION_LABELS = {
   REJECTED: "Rejected",
   AWAITING_CONNECT: "Awaiting connect",
   CONFIRMED: "Confirmed",
+  ROUTES_IN_PROGRESS: "Routes in progress",
+  ROUTES_READY: "Routes ready",
   PICKUP_AVAILABLE: "Pick ready",
   PICKED_UP: "Picked up",
   IN_TRANSIT: "In transit",

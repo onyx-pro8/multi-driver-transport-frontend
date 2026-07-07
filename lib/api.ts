@@ -284,8 +284,15 @@ export function previewZoneConnectionsByCoordinates(
  * Zone-connection preview for an existing order (senders, receivers, admins,
  * and transporters assigned to a segment on the order).
  */
-export function previewOrderZoneConnections(orderId: number): Promise<OrderDraftPreview> {
-  return apiRequest<OrderDraftPreview>(`/api/orders/${orderId}/zone-connection-preview`);
+export function previewOrderZoneConnections(
+  orderId: number,
+  routePurpose: "goods" | "payment" = "goods",
+): Promise<OrderDraftPreview> {
+  const qs =
+    routePurpose === "payment" ? "?purpose=payment" : "";
+  return apiRequest<OrderDraftPreview>(
+    `/api/orders/${orderId}/zone-connection-preview${qs}`,
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -531,6 +538,12 @@ export function getRouteConfirmationStatus(
   routeId: number
 ): Promise<import("@/types").RouteConfirmationStatus> {
   return apiRequest(`/api/routes/${routeId}/confirmation-status`, {
+    cacheOptions: { ttlMs: TTL_LIST },
+  });
+}
+
+export function getRouteSelections(orderId: number): Promise<import("@/types").PffRouteSelections> {
+  return apiRequest(`/api/orders/${orderId}/route-selections`, {
     cacheOptions: { ttlMs: TTL_LIST },
   });
 }

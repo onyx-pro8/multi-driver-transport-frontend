@@ -25,6 +25,7 @@ interface RoleBasedMapViewProps {
   confirmation: RouteConfirmationStatus | null;
   trackingStatus?: TrackingStatus;
   pickupReadyAt?: string | null;
+  goodsReadyAt?: string | null;
   routeConfirmed?: boolean;
   role: "sender" | "receiver" | "driver" | "admin";
 }
@@ -48,6 +49,7 @@ export function RoleBasedMapView({
   confirmation,
   trackingStatus = "CONFIRMED",
   pickupReadyAt = null,
+  goodsReadyAt = null,
   routeConfirmed = false,
   role,
 }: RoleBasedMapViewProps) {
@@ -231,6 +233,8 @@ export function RoleBasedMapView({
           segments={confirmation.segments}
           trackingStatus={trackingStatus}
           pickupReadyAt={pickupReadyAt}
+          goodsReadyAt={goodsReadyAt}
+          paymentMethod={order.payment_method}
           routeConfirmed={routeConfirmed}
         />
       )}

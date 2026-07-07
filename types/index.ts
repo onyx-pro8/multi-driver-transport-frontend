@@ -271,6 +271,10 @@ export interface Order {
   route_selection_status?: RouteSelectionStatus | null;
   selected_route_id?: number | null;
   selected_route_label?: string | null;
+  payment_route_selection_status?: RouteSelectionStatus | null;
+  goods_route_selection_status?: RouteSelectionStatus | null;
+  payment_selected_route_id?: number | null;
+  goods_selected_route_id?: number | null;
   submitted_at: string;
   delivering_at: string | null;
   received_at: string | null;
@@ -886,6 +890,7 @@ export interface RouteCostSummary {
   route_id: number;
   order_id: number;
   route_label: string;
+  route_purpose?: "payment" | "goods" | null;
   transporters: string[];
   segment_count: number;
   total_calculated_cost: number | null;
@@ -896,6 +901,8 @@ export interface RouteCostSummary {
   currency: string;
   status: RouteCostStatus;
   segments: RouteSegmentCost[];
+  pff_selection_blocked?: boolean;
+  pff_selection_blocked_reason?: string | null;
 }
 
 export interface OrderRouteCostComparison {
@@ -910,11 +917,15 @@ export interface OrderRouteCostComparison {
   package_weight_lbs: number | null;
   package_dimensions_in: string | null;
   routes: RouteCostSummary[];
+  payment_routes?: RouteCostSummary[];
+  goods_routes?: RouteCostSummary[];
   route_locked?: boolean;
   route_lock_reason?: "confirmed_route" | "delivery_in_progress" | null;
   schedule_inactive_zones?: ScheduleInactiveZone[];
   route_schedule_at?: string | null;
   is_route_complete?: boolean;
+  is_payment_route_complete?: boolean;
+  is_goods_route_complete?: boolean;
   gap?: OrderDraftGap | null;
 }
 
@@ -956,6 +967,8 @@ export type PaymentStatus = "pending" | "ready" | "not_required";
 
 export type SegmentConfirmationStatus = "pending" | "accepted" | "rejected";
 
+export type RoutePurpose = "standard" | "payment" | "goods";
+
 export interface RouteSelection {
   id: number;
   order_id: number;
@@ -963,9 +976,17 @@ export interface RouteSelection {
   selected_by_user_id: number;
   status: RouteSelectionStatus;
   payment_status: PaymentStatus;
+  route_purpose: RoutePurpose;
   route_label: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface PffRouteSelections {
+  standard: RouteSelection | null;
+  payment: RouteSelection | null;
+  goods: RouteSelection | null;
+  both_confirmed: boolean;
 }
 
 export type SegmentLegStatus = "not_started" | "picked_up" | "in_transit";
@@ -1049,6 +1070,8 @@ export type TrackingStatus =
   | "AWAITING_CONNECT"
   | "REJECTED"
   | "CONFIRMED"
+  | "ROUTES_IN_PROGRESS"
+  | "ROUTES_READY"
   | "PICKUP_AVAILABLE"
   | "PICKED_UP"
   | "IN_TRANSIT"

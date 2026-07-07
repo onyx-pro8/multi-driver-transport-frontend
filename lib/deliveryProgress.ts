@@ -162,6 +162,8 @@ const TRACKING_STATUS_RANK: Record<TrackingStatus, number> = {
   AWAITING_CONNECT: -1,
   REJECTED: -2,
   CONFIRMED: 0,
+  ROUTES_IN_PROGRESS: 0,
+  ROUTES_READY: 0,
   PICKUP_AVAILABLE: 1,
   PAYMENT_DELIVERED: 2,
   PICKED_UP: 3,
@@ -171,6 +173,16 @@ const TRACKING_STATUS_RANK: Record<TrackingStatus, number> = {
 
 function legsComplete(legs: SegmentLegStatus[]): boolean {
   return legs.length > 0 && legs.every((l) => l === "in_transit");
+}
+
+/** Matches backend phaseLegDelivered — last segment in transit, earlier picked up or in transit. */
+function phaseLegDelivered(legStatuses: SegmentLegStatus[]): boolean {
+  if (legStatuses.length === 0) return false;
+  const last = legStatuses[legStatuses.length - 1];
+  if (last !== "in_transit") return false;
+  return legStatuses
+    .slice(0, -1)
+    .every((status) => status === "picked_up" || status === "in_transit");
 }
 
 /** Derive order-level status from segment legs when legs are ahead of the stored order row. */
@@ -189,10 +201,10 @@ export function deriveTrackingStatusFromLegs(
     const paymentLegs = sorted.filter((s) => s.leg_phase === "payment").map((s) => s.leg_status);
     const goodsLegs = sorted.filter((s) => s.leg_phase === "goods").map((s) => s.leg_status);
 
-    if (paymentLegs.length > 0 && legsComplete(paymentLegs)) {
+    if (paymentLegs.length > 0 && phaseLegDelivered(paymentLegs)) {
       if (!options?.goodsReady) return "PAYMENT_DELIVERED";
       if (goodsLegs.length === 0) return "PAYMENT_DELIVERED";
-      if (legsComplete(goodsLegs)) return "IN_TRANSIT";
+      if (phaseLegDelivered(goodsLegs)) return "IN_TRANSIT";
       const goodsFirstPicked =
         goodsLegs[0] === "picked_up" || goodsLegs[0] === "in_transit";
       const goodsAnyTransit = goodsLegs.some((l) => l === "in_transit");
@@ -243,4 +255,54 @@ export function pffPhaseLabel(phase: PffLegPhase | null | undefined): string {
   if (phase === "payment") return "Payment";
   if (phase === "goods") return "Goods";
   return "";
+}
+
+function legStatusesForPhase(
+  segments: Pick<SegmentConfirmationDetail, "segment_index" | "leg_status" | "leg_phase">[],
+  phase: PffLegPhase
+): SegmentLegStatus[] {
+  return sortedSegments(segments)
+    .filter((s) => s.leg_phase === phase)
+    .map((s) => s.leg_status);
+}
+
+/** Progress within a leg after its pickup gate opens: 0 waiting pickup, 1 picked up, 2 in transit, 3 delivered. */
+function legMovementStepIndex(legs: SegmentLegStatus[]): number {
+  if (legs.length === 0) return 0;
+  if (phaseLegDelivered(legs)) return 3;
+  if (legs.some((l) => l === "in_transit") || legsComplete(legs)) return 2;
+  if (legs[0] === "picked_up" || legs[0] === "in_transit") {
+    return legs.length === 1 ? 2 : 1;
+  }
+  return 0;
+}
+
+/** PFF payment route: Confirmed → Pick ready → Picked up → In transit → Delivered (payment). */
+export function getPffPaymentStepIndex(
+  bothRoutesConfirmed: boolean,
+  pickupReadyAt: string | null | undefined,
+  segments: Pick<SegmentConfirmationDetail, "segment_index" | "leg_status" | "leg_phase">[] = []
+): number {
+  if (!bothRoutesConfirmed) return -1;
+  if (!pickupReadyAt) return 0;
+  const movement = legMovementStepIndex(legStatusesForPhase(segments, "payment"));
+  return 1 + movement;
+}
+
+/** PFF goods route: Pickup → Picked up → In transit → Delivered (goods). */
+export function getPffGoodsStepIndex(
+  bothRoutesConfirmed: boolean,
+  goodsReadyAt: string | null | undefined,
+  segments: Pick<SegmentConfirmationDetail, "segment_index" | "leg_status" | "leg_phase">[] = [],
+  trackingStatus: TrackingStatus
+): number {
+  if (!bothRoutesConfirmed) return -1;
+  const paymentLegs = legStatusesForPhase(segments, "payment");
+  const paymentDelivered =
+    paymentLegs.length === 0 || phaseLegDelivered(paymentLegs);
+  if (!paymentDelivered) return -1;
+  if (!goodsReadyAt) return 0;
+  if (trackingStatus === "DELIVERED") return 3;
+  const movement = legMovementStepIndex(legStatusesForPhase(segments, "goods"));
+  return Math.min(3, movement);
 }

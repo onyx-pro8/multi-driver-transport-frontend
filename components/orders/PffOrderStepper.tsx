@@ -4,69 +4,58 @@ import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  PFF_DUAL_ROUTE_INTRO,
+  PFF_GOODS_ROUTE_DIRECTION,
+  PFF_GOODS_ROUTE_TITLE,
+  PFF_PAYMENT_ROUTE_DIRECTION,
+  PFF_PAYMENT_ROUTE_TITLE,
+} from "@/lib/pffTracking";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
-import type { Order, RouteConfirmationStatus, RouteSelection } from "@/types";
-
-const STEPS = [
-  {
-    id: 1,
-    title: "Place order with PFF",
-    hint: "Choose Payment Forwarded First when submitting. The producer must confirm.",
-  },
-  {
-    id: 2,
-    title: "Select route & send confirm path",
-    hint: "Pick one route (up to 25 options), then confirm path with each transporter on the round trip.",
-  },
-  {
-    id: 3,
-    title: "Wait for transporter confirmations",
-    hint: "Each transporter on the route must accept their segment before pickup can be scheduled.",
-  },
-  {
-    id: 4,
-    title: "Send pickup available",
-    hint: "After all confirm, notify that the payment package (cheque/cash) is ready at your location for pickup.",
-  },
-] as const;
-
-function activeStepIndex(
-  order: Order,
-  selection: RouteSelection | null,
-  confirmation: RouteConfirmationStatus | null
-): number {
-  if (order.tracking_status === "AWAITING_CONNECT") return 1;
-  if (!selection?.selected_route_id) return 2;
-  if (confirmation?.selection_status !== "confirmed") return 3;
-  if (!order.pickup_ready_at) return 4;
-  return 5;
-}
+import type { Order, PffRouteSelections, RouteConfirmationStatus } from "@/types";
 
 interface Props {
   order: Order;
-  selection: RouteSelection | null;
-  confirmation: RouteConfirmationStatus | null;
+  selections: PffRouteSelections | null;
+  paymentConfirmation: RouteConfirmationStatus | null;
+  goodsConfirmation: RouteConfirmationStatus | null;
   onMarkPickupAvailable?: () => void;
   pickupUpdating?: boolean;
   className?: string;
 }
 
+function routeStatusLabel(
+  selection: PffRouteSelections["payment"],
+  confirmation: RouteConfirmationStatus | null,
+): string {
+  if (!selection) return "Not set";
+  if (selection.status === "confirmed") return "Confirmed";
+  if (confirmation) {
+    return `${confirmation.progress_percent}% confirmed (${confirmation.confirmed_count}/${confirmation.total_segments})`;
+  }
+  return selection.status.replace("_", " ");
+}
+
 export function PffOrderStepper({
   order,
-  selection,
-  confirmation,
+  selections,
+  paymentConfirmation,
+  goodsConfirmation,
   onMarkPickupAvailable,
   pickupUpdating = false,
   className,
 }: Props) {
   if (!isPffPaymentMethod(order.payment_method)) return null;
 
-  const active = activeStepIndex(order, selection, confirmation);
-  const routeConfirmed = confirmation?.selection_status === "confirmed";
+  const payment = selections?.payment ?? null;
+  const goods = selections?.goods ?? null;
+  const bothConfirmed = selections?.both_confirmed ?? false;
   const canPickup =
-    routeConfirmed &&
+    bothConfirmed &&
     !order.pickup_ready_at &&
-    (order.tracking_status === "CONFIRMED" || !order.tracking_status);
+    (order.tracking_status === "ROUTES_READY" ||
+      order.tracking_status === "CONFIRMED" ||
+      !order.tracking_status);
 
   return (
     <div
@@ -77,96 +66,76 @@ export function PffOrderStepper({
     >
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
-          Advanced Payment (PFF) — your next steps
+          Advanced Payment (PFF) — dual routes
         </p>
         <p className="text-sm text-muted-foreground mt-1">
-          Round trip: transporters first collect payment from you → deliver to producer → then ship
-          goods back to you. Route totals include both legs.
+          {PFF_DUAL_ROUTE_INTRO} Either party can pick their route first. Delivery
+          starts after both are confirmed.
         </p>
       </div>
 
-      <div className="space-y-3">
-        {STEPS.map((step) => {
-          const isComplete = active > step.id;
-          const isCurrent = active === step.id;
-          const isUpcoming = active < step.id;
-
-          return (
-            <div
-              key={step.id}
-              className={cn(
-                "flex gap-3 rounded-lg border px-3 py-2.5",
-                isCurrent && "border-violet-500/50 bg-background ring-1 ring-violet-500/20",
-                isComplete && "border-green-500/30 bg-green-500/5",
-                isUpcoming && "border-border bg-muted/20 opacity-70"
-              )}
-            >
-              <div
-                className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-                  isComplete && "bg-green-500 text-white",
-                  isCurrent && "bg-violet-600 text-white",
-                  isUpcoming && "bg-muted text-muted-foreground"
-                )}
-              >
-                {isComplete ? <Check className="h-3.5 w-3.5" /> : step.id}
-              </div>
-              <div className="min-w-0 flex-1 space-y-1">
-                <p
-                  className={cn(
-                    "text-sm font-medium",
-                    isCurrent && "text-violet-900 dark:text-violet-100"
-                  )}
-                >
-                  {step.title}
-                </p>
-                <p className="text-xs text-muted-foreground">{step.hint}</p>
-                {isCurrent && step.id === 1 && order.tracking_status === "AWAITING_CONNECT" && (
-                  <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                    Waiting for {order.sender_name} to confirm this order…
-                  </p>
-                )}
-                {isCurrent && step.id === 2 && (
-                  <p className="text-xs font-medium text-violet-700 dark:text-violet-300">
-                    Go to route comparison below → choose a route → Select route (sends confirm
-                    path).
-                  </p>
-                )}
-                {isCurrent && step.id === 3 && confirmation && (
-                  <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                    {confirmation.progress_percent}% confirmed ·{" "}
-                    {confirmation.segments.filter((s) => s.status === "accepted").length}/
-                    {confirmation.segments.length} transporters accepted
-                  </p>
-                )}
-                {isCurrent && step.id === 4 && canPickup && onMarkPickupAvailable && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="mt-1"
-                    disabled={pickupUpdating}
-                    onClick={onMarkPickupAvailable}
-                  >
-                    {pickupUpdating ? (
-                      <>
-                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                        Sending…
-                      </>
-                    ) : (
-                      "Send pickup available"
-                    )}
-                  </Button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div
+          className={cn(
+            "rounded-lg border px-3 py-2.5 space-y-1",
+            payment?.status === "confirmed"
+              ? "border-green-500/30 bg-green-500/5"
+              : "border-violet-500/30 bg-background"
+          )}
+        >
+          <p className="text-sm font-medium">{PFF_PAYMENT_ROUTE_TITLE}</p>
+          <p className="text-xs text-muted-foreground">{PFF_PAYMENT_ROUTE_DIRECTION}</p>
+          <p className="text-xs font-medium text-violet-700 dark:text-violet-300">
+            {routeStatusLabel(payment, paymentConfirmation)}
+          </p>
+        </div>
+        <div
+          className={cn(
+            "rounded-lg border px-3 py-2.5 space-y-1",
+            goods?.status === "confirmed"
+              ? "border-green-500/30 bg-green-500/5"
+              : "border-violet-500/30 bg-background"
+          )}
+        >
+          <p className="text-sm font-medium">{PFF_GOODS_ROUTE_TITLE}</p>
+          <p className="text-xs text-muted-foreground">{PFF_GOODS_ROUTE_DIRECTION}</p>
+          <p className="text-xs font-medium text-violet-700 dark:text-violet-300">
+            {routeStatusLabel(goods, goodsConfirmation)}
+          </p>
+        </div>
       </div>
 
-      {active >= 5 && (
-        <p className="text-xs text-green-700 dark:text-green-300">
-          Pickup available sent. Transporters will collect the payment package from you first and
-          deliver it to the producer. The producer will mark goods ready when payment arrives.
+      {bothConfirmed && !order.pickup_ready_at && onMarkPickupAvailable && (
+        <div className="rounded-lg border border-violet-500/50 bg-background px-3 py-2.5 space-y-2">
+          <p className="text-sm font-medium">Both routes confirmed</p>
+          <p className="text-xs text-muted-foreground">
+            Receiver: notify transporters when the payment package is ready for pickup.
+          </p>
+          {canPickup && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={pickupUpdating}
+              onClick={onMarkPickupAvailable}
+            >
+              {pickupUpdating ? (
+                <>
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Send pickup available"
+              )}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {order.pickup_ready_at && (
+        <p className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1.5">
+          <Check className="h-3.5 w-3.5" />
+          Pickup available sent. Payment leg runs on the payment route; goods follow after
+          payment is delivered.
         </p>
       )}
 

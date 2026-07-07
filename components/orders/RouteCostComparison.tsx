@@ -19,6 +19,7 @@ import {
   getOrderRouteCostComparison,
   getPricingConfig,
   getRouteConfirmationStatus,
+  getRouteSelections,
   getSelectedRoute,
   recalculateOrderCosts,
   requestSegmentQuote,
@@ -36,6 +37,7 @@ import type {
   RouteCostSummary,
   RouteSegmentCost,
   RouteSelection,
+  PffRouteSelections,
   SegmentCostStatus,
 } from "@/types";
 import { RouteStatusBadge } from "@/components/orders/RouteStatusBadge";
@@ -44,6 +46,14 @@ import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNoti
 import { GapBridgeCandidates } from "@/components/orders/GapBridgeCandidates";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
+import {
+  PFF_AIR_SEA_RULE_NOTE,
+  PFF_DUAL_ROUTE_INTRO,
+  PFF_GOODS_ROUTE_DIRECTION,
+  PFF_GOODS_ROUTE_TITLE,
+  PFF_PAYMENT_ROUTE_DIRECTION,
+  PFF_PAYMENT_ROUTE_TITLE,
+} from "@/lib/pffTracking";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
 import { PffOrderStepper } from "@/components/orders/PffOrderStepper";
 import { updateOrderTrackingStatus } from "@/lib/api";
@@ -94,18 +104,27 @@ export function RouteCostComparison({
     user?.role === "admin" ||
     user?.role === "sender" ||
     user?.role === "receiver";
+  const isSender = user?.role === "sender" || user?.role === "admin";
+  const canSelectPaymentRoute = user?.role === "admin" || (isPff && isReceiver);
+  const canSelectGoodsRoute = user?.role === "admin" || (isPff && isSender);
+  // Role-based visibility: the receiver owns the payment route, the sender owns
+  // the goods route. Admins and drivers (who may have segments on either) see
+  // both.
+  const showPaymentRoute = isReceiver || isDriver;
+  const showGoodsRoute = isSender || isDriver;
   const canSelectRoute =
     user?.role === "admin" ||
-    (isPff
-      ? isReceiver
-      : user?.role === "sender" || user?.role === "receiver");
+    (!isPff && (isSender || isReceiver));
   const [pickupUpdating, setPickupUpdating] = useState(false);
   const [scheduleInput, setScheduleInput] = useState("");
   const [data, setData] = useState<OrderRouteCostComparison | null>(null);
-  const [selectedRoute, setSelectedRoute] = useState<RouteSelection | null>(
-    null,
-  );
+  const [selectedRoute, setSelectedRoute] = useState<RouteSelection | null>(null);
+  const [routeSelections, setRouteSelections] = useState<PffRouteSelections | null>(null);
   const [confirmation, setConfirmation] =
+    useState<RouteConfirmationStatus | null>(null);
+  const [paymentConfirmation, setPaymentConfirmation] =
+    useState<RouteConfirmationStatus | null>(null);
+  const [goodsConfirmation, setGoodsConfirmation] =
     useState<RouteConfirmationStatus | null>(null);
   const [selectingRouteId, setSelectingRouteId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,19 +158,59 @@ export function RouteCostComparison({
         hasDataRef.current = true;
         if (comparison.is_route_complete !== false) {
           try {
-            const selection = await getSelectedRoute(orderId);
-            setSelectedRoute(selection);
-            const status = await getRouteConfirmationStatus(
-              selection.selected_route_id,
-            );
-            setConfirmation(status);
+            if (comparison.is_pff_order) {
+              const selections = await getRouteSelections(orderId);
+              setRouteSelections(selections);
+              setSelectedRoute(selections.payment ?? selections.goods);
+              if (selections.payment) {
+                try {
+                  const payConf = await getRouteConfirmationStatus(
+                    selections.payment.selected_route_id,
+                  );
+                  setPaymentConfirmation(payConf);
+                } catch {
+                  setPaymentConfirmation(null);
+                }
+              } else {
+                setPaymentConfirmation(null);
+              }
+              if (selections.goods) {
+                try {
+                  const goodsConf = await getRouteConfirmationStatus(
+                    selections.goods.selected_route_id,
+                  );
+                  setGoodsConfirmation(goodsConf);
+                } catch {
+                  setGoodsConfirmation(null);
+                }
+              } else {
+                setGoodsConfirmation(null);
+              }
+              setConfirmation(null);
+            } else {
+              const selection = await getSelectedRoute(orderId);
+              setSelectedRoute(selection);
+              setRouteSelections(null);
+              const status = await getRouteConfirmationStatus(
+                selection.selected_route_id,
+              );
+              setConfirmation(status);
+              setPaymentConfirmation(null);
+              setGoodsConfirmation(null);
+            }
           } catch {
             setSelectedRoute(null);
+            setRouteSelections(null);
             setConfirmation(null);
+            setPaymentConfirmation(null);
+            setGoodsConfirmation(null);
           }
         } else {
           setSelectedRoute(null);
+          setRouteSelections(null);
           setConfirmation(null);
+          setPaymentConfirmation(null);
+          setGoodsConfirmation(null);
         }
       } catch (err) {
         if (!hasDataRef.current) {
@@ -172,13 +231,9 @@ export function RouteCostComparison({
   async function handleSelectRoute(routeId: number) {
     setSelectingRouteId(routeId);
     try {
-      const selection = await selectRoute(orderId, routeId);
-      setSelectedRoute(selection);
-      const status = await getRouteConfirmationStatus(routeId);
-      setConfirmation(status);
-      onMessage?.(
-        "Route selected. Confirmation requests sent to transporters.",
-      );
+      await selectRoute(orderId, routeId);
+      await load(true);
+      onMessage?.("Route selected. Confirmation requests sent to transporters.");
     } catch (err) {
       onMessage?.(
         err instanceof Error ? err.message : "Failed to select route",
@@ -328,6 +383,77 @@ export function RouteCostComparison({
 
   const routeIncomplete = data?.is_route_complete === false && !data?.route_locked;
 
+  function renderRouteSection({
+    title,
+    routes,
+    selection,
+    emptyMessage,
+    canSelect,
+    selectLabel,
+  }: {
+    title: string;
+    routes: RouteCostSummary[];
+    selection: RouteSelection | null;
+    emptyMessage: string;
+    canSelect: boolean;
+    selectLabel: string;
+  }) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm font-medium">{title}</p>
+        {routes.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">{emptyMessage}</p>
+        ) : (
+          routes.map((route) => (
+            <RouteCard
+              key={route.route_id}
+              route={route}
+              isSelected={selection?.selected_route_id === route.route_id}
+              selectionStatus={
+                selection?.selected_route_id === route.route_id
+                  ? selection.status
+                  : null
+              }
+              canSelectRoute={
+                canSelect && !route.pff_selection_blocked
+              }
+              selectionBlockedReason={route.pff_selection_blocked_reason}
+              selecting={selectingRouteId === route.route_id}
+              onSelectRoute={() => handleSelectRoute(route.route_id)}
+              selectRouteLabel={selectLabel}
+              expanded={expandedRouteId === route.route_id}
+              onToggle={() =>
+                setExpandedRouteId((prev) =>
+                  prev === route.route_id ? null : route.route_id,
+                )
+              }
+              canEnterManual={canEnterManual}
+              canRequestQuote={canRequestQuote}
+              manualInputs={manualInputs}
+              onManualInputChange={(id, val) =>
+                setManualInputs((prev) => ({ ...prev, [id]: val }))
+              }
+              onManualSave={handleManualSave}
+              onRequestQuote={handleRequestQuote}
+              onFetchExternal={handleFetchExternal}
+              externalQuoteConfigured={
+                pricingConfig?.external_quote_configured ?? false
+              }
+              bookingFeeRate={
+                pricingConfig?.booking_fee_rate ?? data?.booking_fee_rate ?? 0.02
+              }
+              savingSegment={savingSegment}
+              requestingQuote={requestingQuote}
+              fetchingExternal={fetchingExternal}
+              userId={user?.id}
+              userRole={user?.role}
+            />
+          ))
+        )}
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <Card>
@@ -389,20 +515,17 @@ export function RouteCostComparison({
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        {order && isPff && isReceiver && (
+        {order && isPff && (
           <PffOrderStepper
             order={order}
-            selection={selectedRoute}
-            confirmation={confirmation}
-            onMarkPickupAvailable={() => void handlePffPickupAvailable()}
+            selections={routeSelections}
+            paymentConfirmation={paymentConfirmation}
+            goodsConfirmation={goodsConfirmation}
+            onMarkPickupAvailable={
+              isReceiver ? () => void handlePffPickupAvailable() : undefined
+            }
             pickupUpdating={pickupUpdating}
           />
-        )}
-        {isPff && user?.role === "sender" && (
-          <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-            This is an Advanced Payment (PFF) order. After you connect and confirm, the receiver
-            selects the route and sends pickup available when transporters have confirmed.
-          </div>
         )}
         {data && (
           <div className="space-y-2">
@@ -426,13 +549,13 @@ export function RouteCostComparison({
             )}
             {data.is_pff_order && (
               <p className="text-xs text-violet-800 dark:text-violet-200 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2">
-                PFF pricing: each route includes payment leg (receiver → producer) and goods leg
-                (producer → receiver).
+                {PFF_DUAL_ROUTE_INTRO}
                 {(data.pff_factor ?? 0) > 0 && (
                   <>
                     {" "}
-                    Payment leg cost is scaled by PFF factor ({((data.pff_factor ?? 0) * 100).toFixed(0)}
-                    %).
+                    The payment route carries an additional PFF surcharge of{" "}
+                    {((data.pff_factor ?? 0) * 100).toFixed(0)}% on top of its
+                    transport cost.
                   </>
                 )}
               </p>
@@ -480,7 +603,47 @@ export function RouteCostComparison({
             {data.gap ? <GapBridgeCandidates gap={data.gap} /> : null}
           </div>
         )}
-        {!data || data.routes.length === 0 ? (
+        {isPff && data ? (
+          <>
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-sm text-sky-950 dark:text-sky-100">
+              {PFF_AIR_SEA_RULE_NOTE}
+            </div>
+            {showPaymentRoute && renderRouteSection({
+              title: `${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`,
+              routes: data.payment_routes ?? [],
+              selection: routeSelections?.payment ?? null,
+              emptyMessage:
+                data.is_payment_route_complete === false
+                  ? "No complete payment path at the selected time."
+                  : "No payment routes found. Recalculate after zones are connected.",
+              canSelect: canSelectPaymentRoute && !data.route_locked,
+              selectLabel: "Select payment route",
+            })}
+            {showGoodsRoute && renderRouteSection({
+              title: `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}`,
+              routes: data.goods_routes ?? [],
+              selection: routeSelections?.goods ?? null,
+              emptyMessage:
+                data.is_goods_route_complete === false
+                  ? "No complete goods path at the selected time."
+                  : "No goods routes found. Recalculate after zones are connected.",
+              canSelect: canSelectGoodsRoute && !data.route_locked,
+              selectLabel: "Select goods route",
+            })}
+            {showPaymentRoute && paymentConfirmation && routeSelections?.payment && !isDriver && (
+              <div className="space-y-3 pt-2 border-t border-border">
+                <p className="text-sm font-medium">Payment route confirmation</p>
+                <RouteConfirmationStatusPanel confirmation={paymentConfirmation} />
+              </div>
+            )}
+            {showGoodsRoute && goodsConfirmation && routeSelections?.goods && !isDriver && (
+              <div className="space-y-3 pt-2 border-t border-border">
+                <p className="text-sm font-medium">Goods route confirmation</p>
+                <RouteConfirmationStatusPanel confirmation={goodsConfirmation} />
+              </div>
+            )}
+          </>
+        ) : !data || data.routes.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             {data?.route_locked
               ? "No saved route data found for this order."
@@ -502,7 +665,7 @@ export function RouteCostComparison({
               canSelectRoute={canSelectRoute && !data.route_locked}
               selecting={selectingRouteId === route.route_id}
               onSelectRoute={() => handleSelectRoute(route.route_id)}
-              selectRouteLabel={isPff ? "Select route & send confirm path" : "Select route"}
+              selectRouteLabel="Select route"
               expanded={expandedRouteId === route.route_id}
               onToggle={() =>
                 setExpandedRouteId((prev) =>
@@ -516,19 +679,15 @@ export function RouteCostComparison({
                 setManualInputs((prev) => ({ ...prev, [id]: val }))
               }
               onManualSave={handleManualSave}
-              // onExternalSave={handleExternalSave}
               onRequestQuote={handleRequestQuote}
               onFetchExternal={handleFetchExternal}
               externalQuoteConfigured={
                 pricingConfig?.external_quote_configured ?? false
               }
               bookingFeeRate={
-                pricingConfig?.booking_fee_rate ??
-                data?.booking_fee_rate ??
-                0.02
+                pricingConfig?.booking_fee_rate ?? data?.booking_fee_rate ?? 0.02
               }
               savingSegment={savingSegment}
-              // savingExternal={savingExternal}
               requestingQuote={requestingQuote}
               fetchingExternal={fetchingExternal}
               userId={user?.id}
@@ -536,7 +695,7 @@ export function RouteCostComparison({
             />
           ))
         )}
-        {confirmation && selectedRoute && !isDriver && (
+        {confirmation && selectedRoute && !isPff && !isDriver && (
           <div className="space-y-3 pt-2 border-t border-border">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium">Route confirmation status</p>
@@ -563,6 +722,7 @@ function RouteCard({
   selecting,
   onSelectRoute,
   selectRouteLabel = "Select route",
+  selectionBlockedReason,
   expanded,
   onToggle,
   canEnterManual,
@@ -589,6 +749,7 @@ function RouteCard({
   selecting: boolean;
   onSelectRoute: () => void;
   selectRouteLabel?: string;
+  selectionBlockedReason?: string | null;
   expanded: boolean;
   onToggle: () => void;
   canEnterManual: boolean;
@@ -681,6 +842,11 @@ function RouteCard({
                 selectRouteLabel
               )}
             </Button>
+          )}
+          {!canSelectRoute && !isSelected && selectionBlockedReason && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 max-w-[14rem] ml-auto">
+              {selectionBlockedReason}
+            </p>
           )}
           <Button
             type="button"

@@ -78,6 +78,8 @@ interface Props {
   loading: boolean;
   refreshing?: boolean;
   error: string | null;
+  /** Optional section title (e.g. PFF payment vs goods preview). */
+  heading?: string;
 }
 
 /** What the map is currently tracing. */
@@ -129,7 +131,7 @@ function orderZonesByRole(zones: OrderDraftZoneSummary[]): OrderDraftZoneSummary
   });
 }
 
-export function OrderDraftZonePreview({ preview, loading, refreshing = false, error }: Props) {
+export function OrderDraftZonePreview({ preview, loading, refreshing = false, error, heading }: Props) {
   // Hooks must be unconditional — compute view-models even when there's no
   // preview to render so the conditional returns below don't violate the
   // rules-of-hooks.
@@ -410,14 +412,31 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
             <CardTitle className="text-sm flex items-center gap-2">
-              <StatusIcon className={cn("h-4 w-4", status.tone)} />
-              <span className={status.tone}>{status.label}</span>
-              <span className="text-muted-foreground font-normal">
-                · zone connection preview
-              </span>
+              {heading ? (
+                <span>{heading}</span>
+              ) : (
+                <>
+                  <StatusIcon className={cn("h-4 w-4", status.tone)} />
+                  <span className={status.tone}>{status.label}</span>
+                  <span className="text-muted-foreground font-normal">
+                    · zone connection preview
+                  </span>
+                </>
+              )}
               {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             </CardTitle>
-            <CardDescription className="text-xs mt-1">{preview.message}</CardDescription>
+            <CardDescription className="text-xs mt-1">
+              {heading ? (
+                <>
+                  <StatusIcon className={cn("inline h-3.5 w-3.5 mr-1", status.tone)} />
+                  <span className={status.tone}>{status.label}</span>
+                  {" · "}
+                  {preview.message}
+                </>
+              ) : (
+                preview.message
+              )}
+            </CardDescription>
           </div>
           <span className="text-[10px] uppercase tracking-wide rounded-full border border-border px-2 py-0.5 text-muted-foreground">
             Preview · not a final route

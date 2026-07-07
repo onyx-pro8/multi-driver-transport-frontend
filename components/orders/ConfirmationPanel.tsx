@@ -124,10 +124,10 @@ const SEGMENT_STATUS_BADGE: Record<string, string> = {
   rejected: "bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20",
 };
 
-interface RouteGroup {
-  route_id: number;
+interface OrderGroup {
   order_id: number;
-  route_label: string;
+  /** Distinct route labels in this order (e.g. "Payment route 1", "Goods route 1"). */
+  route_labels: string[];
   sender_address: string;
   destination_address: string;
   items: TransporterConfirmationItem[];
@@ -138,6 +138,24 @@ interface RouteGroup {
   route_is_complete: boolean;
 }
 
+/** Order payment/goods legs before standard segments, then by segment index. */
+function legRank(item: TransporterConfirmationItem): number {
+  if (item.leg_phase === "payment") return 0;
+  if (item.leg_phase === "goods") return 1;
+  return 2;
+}
+
+function sortOrderSegments(
+  a: TransporterConfirmationItem,
+  b: TransporterConfirmationItem,
+): number {
+  return (
+    legRank(a) - legRank(b) ||
+    a.route_label.localeCompare(b.route_label) ||
+    a.segment_index - b.segment_index
+  );
+}
+
 interface ConfirmationPanelProps {
   items: TransporterConfirmationItem[];
   onUpdated?: () => void | Promise<void>;
@@ -146,7 +164,7 @@ interface ConfirmationPanelProps {
 }
 
 export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: ConfirmationPanelProps) {
-  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [actingId, setActingId] = useState<number | null>(null);
@@ -154,39 +172,57 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
   const [manualInputs, setManualInputs] = useState<Record<number, string>>({});
   const [savingCostId, setSavingCostId] = useState<number | null>(null);
 
-  const routeGroups = useMemo(() => {
-    const map = new Map<number, RouteGroup>();
+  // Group by order so a PFF order's payment and goods legs live under a single
+  // shipment card instead of two separate route cards.
+  const orderGroups = useMemo(() => {
+    const map = new Map<number, OrderGroup>();
+    const inactiveZoneKeys = new Map<number, Set<number>>();
     for (const item of items) {
-      let group = map.get(item.route_id);
+      let group = map.get(item.order_id);
       if (!group) {
         group = {
-          route_id: item.route_id,
           order_id: item.order_id,
-          route_label: item.route_label,
+          route_labels: [],
           sender_address: item.sender_address,
           destination_address: item.destination_address,
           items: [],
           pendingCount: 0,
           acceptedCount: 0,
           rejectedCount: 0,
-          schedule_inactive_zones: item.schedule_inactive_zones ?? [],
-          route_is_complete: item.route_is_complete !== false,
+          schedule_inactive_zones: [],
+          route_is_complete: true,
         };
-        map.set(item.route_id, group);
+        map.set(item.order_id, group);
+        inactiveZoneKeys.set(item.order_id, new Set());
       }
       group.items.push(item);
+      if (!group.route_labels.includes(item.route_label)) {
+        group.route_labels.push(item.route_label);
+      }
       if (item.status === "pending") group.pendingCount += 1;
       else if (item.status === "accepted") group.acceptedCount += 1;
       else if (item.status === "rejected") group.rejectedCount += 1;
+      if (item.route_is_complete === false) group.route_is_complete = false;
+      const seen = inactiveZoneKeys.get(item.order_id)!;
+      for (const zone of item.schedule_inactive_zones ?? []) {
+        if (!seen.has(zone.zone_id)) {
+          seen.add(zone.zone_id);
+          (group.schedule_inactive_zones ??= []).push(zone);
+        }
+      }
     }
-    return Array.from(map.values()).sort(
-      (a, b) => b.pendingCount - a.pendingCount || b.route_id - a.route_id
+    const groups = Array.from(map.values());
+    groups.forEach((group) => {
+      group.route_labels.sort((a, b) => a.localeCompare(b));
+    });
+    return groups.sort(
+      (a, b) => b.pendingCount - a.pendingCount || b.order_id - a.order_id
     );
   }, [items]);
 
   const selectedGroup = useMemo(
-    () => routeGroups.find((g) => g.route_id === selectedRouteId) ?? null,
-    [routeGroups, selectedRouteId]
+    () => orderGroups.find((g) => g.order_id === selectedOrderId) ?? null,
+    [orderGroups, selectedOrderId]
   );
 
   const totalPending = items.filter((i) => i.status === "pending").length;
@@ -290,7 +326,7 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
           size="sm"
           className="-ml-2"
           onClick={() => {
-            setSelectedRouteId(null);
+            setSelectedOrderId(null);
             setRejectingId(null);
             setRejectReason("");
           }}
@@ -304,8 +340,13 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <CardTitle className="text-base">
-                  Order #{selectedGroup.order_id} · {selectedGroup.route_label}
+                  Order #{selectedGroup.order_id}
                 </CardTitle>
+                {selectedGroup.route_labels.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {selectedGroup.route_labels.join(" · ")}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground mt-1">
                   {selectedGroup.sender_address || "—"} → {selectedGroup.destination_address || "—"}
                 </p>
@@ -353,8 +394,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
           </div>
         )}
 
-        {selectedGroup.items
-          .sort((a, b) => a.segment_index - b.segment_index)
+        {[...selectedGroup.items]
+          .sort(sortOrderSegments)
           .map((item) => (
             <SegmentCard
               key={item.confirmation_id}
@@ -390,10 +431,10 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
       {totalPending > 0 && (
         <p className="text-sm text-muted-foreground">
           {totalPending} segment{totalPending === 1 ? "" : "s"} awaiting your response across{" "}
-          {routeGroups.length} route{routeGroups.length === 1 ? "" : "s"}.
+          {orderGroups.length} order{orderGroups.length === 1 ? "" : "s"}.
         </p>
       )}
-      {routeGroups.map((group) => {
+      {orderGroups.map((group) => {
         const segmentCostTotal = transporterSegmentCostTotal(group.items);
         const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
         const hasAvailabilityIssue =
@@ -401,15 +442,21 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
         const packageSummary = formatShipmentPackageSummary(group.items[0]);
         return (
         <Card
-          key={group.route_id}
+          key={group.order_id}
           className="cursor-pointer transition-colors hover:bg-muted/30"
-          onClick={() => setSelectedRouteId(group.route_id)}
+          onClick={() => setSelectedOrderId(group.order_id)}
         >
           <CardContent className="py-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-medium truncate">
-                  Order #{group.order_id} · {group.route_label}
+                  Order #{group.order_id}
+                  {group.route_labels.length > 0 && (
+                    <span className="text-muted-foreground font-normal">
+                      {" · "}
+                      {group.route_labels.join(" · ")}
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 truncate">
                   {group.sender_address || "—"} → {group.destination_address || "—"}

@@ -28,6 +28,10 @@ const TRACKING_STATUS_STYLES: Record<TrackingStatus, string> = {
     "bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20",
   CONFIRMED:
     "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20",
+  ROUTES_IN_PROGRESS:
+    "bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20",
+  ROUTES_READY:
+    "bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20",
   PICKUP_AVAILABLE:
     "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20",
   PICKED_UP:
@@ -44,6 +48,8 @@ const TRACKING_STATUS_LABEL: Record<TrackingStatus, string> = {
   AWAITING_CONNECT: "Awaiting connect",
   REJECTED: "Rejected",
   CONFIRMED: "Confirmed",
+  ROUTES_IN_PROGRESS: "Routes in progress",
+  ROUTES_READY: "Routes ready",
   PICKUP_AVAILABLE: "Pickup available",
   PICKED_UP: "Picked up",
   IN_TRANSIT: "In transit",
