@@ -251,7 +251,7 @@ export function OrdersPage() {
                     <th className="py-3 pr-4 font-medium">From</th>
                     <th className="py-3 pr-4 font-medium">To</th>
                     <th className="py-3 pr-4 font-medium">Route</th>
-                    <th className="py-3 pr-4 font-medium">Distance</th>
+                    {/* <th className="py-3 pr-4 font-medium">Distance</th> */}
                     <th className="py-3 pr-4 font-medium">Route status</th>
                     <th className="py-3 pr-4 font-medium">Delivery status</th>
                     <th className="py-3 pr-4 font-medium">Submitted</th>
@@ -285,7 +285,7 @@ export function OrdersPage() {
                         <td className="py-3 pr-4 max-w-[140px] truncate text-muted-foreground" title={order.selected_route_label ?? undefined}>
                           {order.selected_route_label || "—"}
                         </td>
-                        <td className="py-3 pr-4">
+                        {/* <td className="py-3 pr-4">
                           {order.selected_route_id ? (
                             <div className="flex flex-col gap-1">
                               <span className="text-xs font-medium text-foreground">
@@ -299,7 +299,7 @@ export function OrdersPage() {
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
-                        </td>
+                        </td> */}
                         <td className="py-3 pr-4">
                           <div className="flex flex-col gap-1 items-start">
                             {isAwaitingConnect(order) ? (
