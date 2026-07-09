@@ -251,6 +251,7 @@ export function OrdersPage() {
                     <th className="py-3 pr-4 font-medium">From</th>
                     <th className="py-3 pr-4 font-medium">To</th>
                     <th className="py-3 pr-4 font-medium">Route</th>
+                    <th className="py-3 pr-4 font-medium">Distance</th>
                     <th className="py-3 pr-4 font-medium">Route status</th>
                     <th className="py-3 pr-4 font-medium">Delivery status</th>
                     <th className="py-3 pr-4 font-medium">Submitted</th>
@@ -283,6 +284,21 @@ export function OrdersPage() {
                         </td>
                         <td className="py-3 pr-4 max-w-[140px] truncate text-muted-foreground" title={order.selected_route_label ?? undefined}>
                           {order.selected_route_label || "—"}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {order.selected_route_id ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs font-medium text-foreground">
+                                {formatDistanceKm(order.selected_route_total_distance_km)}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                Sea {formatDistanceKm(order.selected_route_method_distance_km?.sea ?? 0)} · Air{" "}
+                                {formatDistanceKm(order.selected_route_method_distance_km?.air ?? 0)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           <div className="flex flex-col gap-1 items-start">
@@ -444,6 +460,38 @@ export function OrdersPage() {
                 />
               </CardContent>
             </Card>
+            {selectedOrder.selected_route_id && selectedOrder.selected_route_segments && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Shipment distance</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Total:{" "}
+                    <span className="font-medium text-foreground">
+                      {formatDistanceKm(selectedOrder.selected_route_total_distance_km)}
+                    </span>{" "}
+                    · Sea {formatDistanceKm(selectedOrder.selected_route_method_distance_km?.sea ?? 0)} · Air{" "}
+                    {formatDistanceKm(selectedOrder.selected_route_method_distance_km?.air ?? 0)}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {selectedOrder.selected_route_segments.map((segment) => (
+                      <div
+                        key={`${segment.route_id}-${segment.segment_index}-${segment.transport_method}-${segment.from_label}-${segment.to_label}`}
+                        className="rounded-md border border-border/70 px-3 py-2 text-sm"
+                      >
+                        <p className="font-medium">
+                          Segment {segment.segment_index + 1}: {segment.from_label} → {segment.to_label}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {segment.transport_method.toUpperCase()} · {formatDistanceKm(segment.distance_km)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             {!isAwaitingConnect(selectedOrder) && (
               <>
                 <OrderPossibleRoutes
@@ -469,6 +517,12 @@ export function OrdersPage() {
       </div>
     </>
   );
+}
+
+function formatDistanceKm(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded.toLocaleString()} km`;
 }
 
 function StatTile({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {

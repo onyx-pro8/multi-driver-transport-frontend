@@ -583,9 +583,9 @@ export function RouteCostComparison({
         )}
         {data?.route_locked && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
-            Showing the confirmed route snapshot for this order. Routes are not
-            recomputed while delivery is in progress or complete, even if zones
-            or schedules have changed.
+            {data.route_lock_reason === "confirmation_pending"
+              ? "Transporters are reviewing this route. Routes and costs stay fixed until they respond or delivery begins."
+              : "Showing the confirmed route snapshot for this order. Routes are not recomputed while delivery is in progress or complete, even if zones or schedules have changed."}
           </div>
         )}
         {data?.is_route_complete === false && !data.route_locked && (

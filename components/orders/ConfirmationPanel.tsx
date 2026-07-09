@@ -1,7 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, Clock, Loader2, Package, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Clock,
+  Loader2,
+  Map as MapIcon,
+  Package,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +33,27 @@ import { OrderProgressBar } from "@/components/orders/SegmentTimeline";
 import { canTrackOrder, TrackOrderLink } from "@/components/orders/TrackOrderLink";
 import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
 import { PACKAGE_TYPE_LABELS } from "@/lib/pricing";
+import {
+  defaultPaymentPackageEntry,
+  formatPaymentPackageDimensions,
+  PAYMENT_PACKAGE_TYPE_LABELS,
+  type PaymentPackageEntry,
+  type PaymentPackageType,
+} from "@/lib/paymentPackages";
+
+const ConfirmationSegmentMap = dynamic(
+  () =>
+    import("@/components/orders/ConfirmationSegmentMap").then((m) => m.ConfirmationSegmentMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[320px] items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading map…
+      </div>
+    ),
+  },
+);
 
 const SEGMENT_COST_LABEL: Record<SegmentCostStatus, string> = {
   calculated: "Calculated",
@@ -43,6 +76,20 @@ function transporterSegmentCostTotal(items: TransporterConfirmationItem[]): stri
   return formatCurrency(total, priced[0].currency);
 }
 
+function formatDistanceKm(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded.toLocaleString()} km`;
+}
+
+function transporterDistanceTotalKm(items: TransporterConfirmationItem[]): number | null {
+  const distances = items
+    .map((item) => item.distance_km)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  if (distances.length === 0) return null;
+  return Math.round(distances.reduce((sum, value) => sum + value, 0) * 100) / 100;
+}
+
 function formatShipmentPackageSummary(
   item: TransporterConfirmationItem | undefined,
 ): string | null {
@@ -61,6 +108,43 @@ function formatShipmentPackageSummary(
     parts.push(item.package_dimensions_in);
   }
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function formatPaymentPackagesSummary(packages: PaymentPackageEntry[]): string | null {
+  if (packages.length === 0) return null;
+  return packages
+    .map((pkg, index) => {
+      const typeLabel =
+        PAYMENT_PACKAGE_TYPE_LABELS[pkg.payment_type as PaymentPackageType] ?? pkg.payment_type;
+      const dims = formatPaymentPackageDimensions(pkg);
+      const label = packages.length > 1 ? `Payment ${index + 1}` : "Payment";
+      return `${label}: ${typeLabel} · ${pkg.description} · ${pkg.weight_lbs} lb · ${dims}`;
+    })
+    .join(" | ");
+}
+
+function SegmentShipmentDetails({ item }: { item: TransporterConfirmationItem }) {
+  if (item.leg_phase === "payment") {
+    const packages =
+      item.payment_packages && item.payment_packages.length > 0
+        ? item.payment_packages
+        : [defaultPaymentPackageEntry()];
+    const summary = formatPaymentPackagesSummary(packages);
+
+    return (
+      <div className="mt-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
+          Payment details
+        </p>
+        <p className="text-sm mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Package className="h-3.5 w-3.5 text-violet-600 dark:text-violet-300 shrink-0" />
+          <span>{summary}</span>
+        </p>
+      </div>
+    );
+  }
+
+  return <ShipmentPackageDetails item={item} />;
 }
 
 function ShipmentPackageDetails({ item }: { item: TransporterConfirmationItem }) {
@@ -354,6 +438,12 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   {selectedGroup.pendingCount} pending · {selectedGroup.acceptedCount} accepted ·{" "}
                   {selectedGroup.rejectedCount} rejected
                 </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Shipment distance:{" "}
+                  <span className="font-medium text-foreground">
+                    {formatDistanceKm(transporterDistanceTotalKm(selectedGroup.items))}
+                  </span>
+                </p>
                 {formatShipmentPackageSummary(trackingItem) && (
                   <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
                     <Package className="h-3 w-3 shrink-0" />
@@ -436,6 +526,7 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
       )}
       {orderGroups.map((group) => {
         const segmentCostTotal = transporterSegmentCostTotal(group.items);
+        const shipmentDistance = transporterDistanceTotalKm(group.items);
         const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
         const hasAvailabilityIssue =
           !group.route_is_complete || (group.schedule_inactive_zones?.length ?? 0) > 0;
@@ -477,6 +568,11 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   {segmentCostTotal && (
                     <span className="ml-2 font-medium text-foreground">
                       · Your cost: {segmentCostTotal}
+                    </span>
+                  )}
+                  {shipmentDistance != null && (
+                    <span className="ml-2 font-medium text-foreground">
+                      · Distance: {formatDistanceKm(shipmentDistance)}
                     </span>
                   )}
                   {hasAvailabilityIssue && (
@@ -544,6 +640,7 @@ function SegmentCard({
   onToggleReject,
   onRejectReasonChange,
 }: SegmentCardProps) {
+  const [showMap, setShowMap] = useState(false);
   const showPickedUp = canSegmentMarkPickedUp(item);
   const showInTransit = canSegmentMarkInTransit(item);
   const legUpdating = legUpdatingId === item.segment_id;
@@ -576,7 +673,11 @@ function SegmentCard({
             <p className="text-xs text-muted-foreground mt-1">
               Request sent: {new Date(item.sent_at).toLocaleString()}
             </p>
-            <ShipmentPackageDetails item={item} />
+            <p className="text-xs text-muted-foreground mt-1">
+              Segment distance:{" "}
+              <span className="font-medium text-foreground">{formatDistanceKm(item.distance_km)}</span>
+            </p>
+            <SegmentShipmentDetails item={item} />
             <p className="text-sm font-medium mt-3">Your segment cost</p>
             {item.status === "pending" ? (
               <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -700,6 +801,25 @@ function SegmentCard({
             Rejection reason: {item.rejection_reason}
           </p>
         ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShowMap((open) => !open)}
+          >
+            <MapIcon className="h-3.5 w-3.5" />
+            {showMap ? "Hide map" : "View map"}
+            {showMap ? (
+              <ChevronUp className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+
+        {showMap && <ConfirmationSegmentMap item={item} />}
 
         {rejectingId === item.segment_id && (
           <div className="flex flex-wrap gap-2 items-end">

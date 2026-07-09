@@ -271,6 +271,21 @@ export interface Order {
   route_selection_status?: RouteSelectionStatus | null;
   selected_route_id?: number | null;
   selected_route_label?: string | null;
+  selected_route_total_distance_km?: number | null;
+  selected_route_method_distance_km?: {
+    land: number;
+    sea: number;
+    air: number;
+  } | null;
+  selected_route_segments?: {
+    route_id: number;
+    route_purpose: "standard" | "payment" | "goods" | null;
+    segment_index: number;
+    transport_method: string;
+    from_label: string;
+    to_label: string;
+    distance_km: number | null;
+  }[];
   payment_route_selection_status?: RouteSelectionStatus | null;
   goods_route_selection_status?: RouteSelectionStatus | null;
   payment_selected_route_id?: number | null;
@@ -920,7 +935,7 @@ export interface OrderRouteCostComparison {
   payment_routes?: RouteCostSummary[];
   goods_routes?: RouteCostSummary[];
   route_locked?: boolean;
-  route_lock_reason?: "confirmed_route" | "delivery_in_progress" | null;
+  route_lock_reason?: "confirmed_route" | "confirmation_pending" | "delivery_in_progress" | null;
   schedule_inactive_zones?: ScheduleInactiveZone[];
   route_schedule_at?: string | null;
   is_route_complete?: boolean;
@@ -1038,6 +1053,10 @@ export interface TransporterConfirmationItem {
   leg_status: SegmentLegStatus;
   rejection_reason: string | null;
   route_label: string;
+  route_purpose?: RoutePurpose | null;
+  zone_ids?: number[];
+  connection_ids?: number[];
+  transport_method?: string | null;
   sender_address: string;
   destination_address: string;
   sent_at: string;
@@ -1046,9 +1065,11 @@ export interface TransporterConfirmationItem {
   pickup_ready_at: string | null;
   goods_ready_at?: string | null;
   payment_method?: string;
+  payment_packages?: PaymentPackageEntry[];
   route_segment_count: number;
   previous_leg_status: SegmentLegStatus | null;
   final_cost: number | null;
+  distance_km: number | null;
   currency: string;
   cost_status: SegmentCostStatus;
   package_type?: string | null;
