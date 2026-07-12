@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Clock, Package, Route, Send, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Package, Plus, Route, Send, XCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { showToast } from "@/lib/toast";
 import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff, canReceiverNotifyPaymentPickedUp, canSenderMarkGoodsReadyForPff } from "@/lib/trackingActions";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order, TrackingStatus } from "@/types";
-import { ReceiverNewOrderForm } from "./ReceiverNewOrderForm";
+import { ReceiverNewOrderModal } from "./ReceiverNewOrderModal";
 import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
 import { OrderPackageEditor } from "@/components/orders/OrderPackageEditor";
 import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
@@ -37,6 +37,7 @@ export function OrdersPage() {
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [rejectionReasonOrder, setRejectionReasonOrder] = useState<Order | null>(null);
   const [costRefreshKey, setCostRefreshKey] = useState(0);
+  const [orderFormModalOpen, setOrderFormModalOpen] = useState(false);
 
   const isAwaitingConnect = (order: Order) => order.tracking_status === "AWAITING_CONNECT";
   const isRejected = (order: Order) => order.tracking_status === "REJECTED";
@@ -196,24 +197,29 @@ export function OrdersPage() {
         </section>
 
         {isReceiver && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Send className="h-4 w-4" /> Request shipment
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Submit a shipment request to a sender. They will connect routes after reviewing your order.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <ReceiverNewOrderForm
-                onCreated={(order) => {
-                  setOrders((prev) => [order, ...prev]);
-                }}
-                onMessage={showMessage}
-              />
-            </CardContent>
-          </Card>
+          <div className="flex flex-col gap-4 rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/8 via-card to-card p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-primary shadow-sm">
+                <Send className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold tracking-tight">Request a shipment</h2>
+                <p className="max-w-xl text-sm text-muted-foreground">
+                  Submit a request to a sender. They review payment and order details before
+                  connecting routes.
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="lg"
+              className="shrink-0 self-start sm:self-center"
+              onClick={() => setOrderFormModalOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+              New shipment request
+            </Button>
+          </div>
         )}
 
         {isSender && (
@@ -227,20 +233,46 @@ export function OrdersPage() {
         )}
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle className="flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              {isSender ? "Your shipments" : "Shipments to you"}
-            </CardTitle>
-            <p className="hidden sm:block text-xs text-muted-foreground">
-              Click any row to view package details and route options.
-            </p>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-4 w-4" />
+                {isSender ? "Your shipments" : "Shipments to you"}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Click any row to view package details and route options.
+              </p>
+            </div>
+            {isReceiver && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setOrderFormModalOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                New request
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="overflow-x-auto">
             {initialLoading ? (
               <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
             ) : orders.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">No shipments yet.</div>
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                  <Package className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">No shipments yet</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isReceiver
+                      ? "Start by submitting your first shipment request."
+                      : "Incoming shipment requests will appear here."}
+                  </p>
+                </div>
+                {isReceiver && (
+                  <Button type="button" size="sm" onClick={() => setOrderFormModalOpen(true)}>
+                    <Plus className="h-3.5 w-3.5" />
+                    New shipment request
+                  </Button>
+                )}
+              </div>
             ) : (
               <table className="w-full min-w-[1000px] text-sm">
                 <thead>
@@ -429,6 +461,15 @@ export function OrdersPage() {
           open={rejectionReasonOrder != null}
           order={rejectionReasonOrder}
           onClose={() => setRejectionReasonOrder(null)}
+        />
+
+        <ReceiverNewOrderModal
+          open={orderFormModalOpen}
+          onClose={() => setOrderFormModalOpen(false)}
+          onCreated={(order) => {
+            setOrders((prev) => [order, ...prev]);
+          }}
+          onMessage={showMessage}
         />
 
         {selectedOrder && (

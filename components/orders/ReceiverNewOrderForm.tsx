@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { AddressSearchInput } from "@/components/ui/AddressSearchInput";
@@ -27,16 +27,47 @@ import {
 } from "@/lib/paymentPackages";
 import { defaultOrderPackageEntry } from "@/lib/pricing";
 
+export const RECEIVER_NEW_ORDER_FORM_ID = "receiver-new-order-form";
+
 interface Props {
   onCreated: (order: Order) => void;
   onMessage: (text: string, type?: "success" | "error") => void;
+  formId?: string;
+  hideSubmitButton?: boolean;
+  onSubmittingChange?: (submitting: boolean) => void;
 }
 
 function senderDisplayLabel(sender: SenderSummary): string {
   return `${sender.full_name} · ${sender.email}`;
 }
 
-export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-border/70 bg-muted/15 p-4 sm:p-5 space-y-4">
+      <div className="space-y-0.5">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export function ReceiverNewOrderForm({
+  onCreated,
+  onMessage,
+  formId = RECEIVER_NEW_ORDER_FORM_ID,
+  hideSubmitButton = false,
+  onSubmittingChange,
+}: Props) {
   const { user } = useAuth();
   const [senderInput, setSenderInput] = useState("");
   const [selectedSender, setSelectedSender] = useState<SenderSummary | null>(null);
@@ -63,6 +94,10 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
     paymentPackageFormEntryFromOrder(defaultPaymentPackageEntry()),
   ]);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    onSubmittingChange?.(submitting);
+  }, [submitting, onSubmittingChange]);
 
   useEffect(() => {
     if (user?.address) {
@@ -210,8 +245,11 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-3">
+    <form id={formId} onSubmit={handleSubmit} className="space-y-5">
+      <FormSection
+        title="Sender"
+        description="Search by name or email. Pickup uses the sender's address on file."
+      >
         <div ref={senderContainerRef} className="relative">
           <Label htmlFor="sender-search">Search sender</Label>
           <Input
@@ -226,27 +264,24 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
             }}
             autoComplete="off"
           />
-          <p className="text-xs text-muted-foreground mt-1">
-            Pick the sender who will fulfill this shipment. Pickup uses their address on file.
-          </p>
 
           {dropdownOpen && senderInput.trim().length >= 2 && (
-            <div className="absolute z-20 mt-1 w-full rounded-lg border border-border bg-background shadow-md overflow-hidden">
+            <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-background shadow-lg">
               {sendersLoading ? (
-                <p className="px-3 py-3 text-sm text-muted-foreground flex items-center gap-2">
+                <p className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Searching…
                 </p>
               ) : senders.length === 0 ? (
                 <p className="px-3 py-3 text-sm text-muted-foreground">No senders match your search.</p>
               ) : (
-                <ul className="max-h-48 overflow-y-auto divide-y divide-border">
+                <ul className="max-h-48 divide-y divide-border overflow-y-auto">
                   {senders.map((s) => (
                     <li key={s.id}>
                       <button
                         type="button"
                         onClick={() => handleSelectSender(s)}
                         className={cn(
-                          "w-full text-left px-3 py-2.5 text-sm transition-colors hover:bg-muted/50",
+                          "w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50",
                           selectedSender?.id === s.id && "bg-primary/10"
                         )}
                       >
@@ -260,87 +295,102 @@ export function ReceiverNewOrderForm({ onCreated, onMessage }: Props) {
             </div>
           )}
         </div>
-      </div>
+      </FormSection>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="md:col-span-2">
-          <Label>Ship-to address</Label>
-          <AddressSearchInput
-            value={deliveryAddress}
-            onChange={(text) => {
-              setDeliveryAddress(text);
-              if (deliveryLat || deliveryLng) {
-                setDeliveryLat("");
-                setDeliveryLng("");
-              }
-            }}
-            onPick={(place) => {
-              setDeliveryAddress(place.label);
-              setDeliveryLat(String(place.lat));
-              setDeliveryLng(String(place.lng));
-            }}
+      <FormSection title="Delivery" description="Where the shipment should be delivered.">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <Label>Ship-to address</Label>
+            <AddressSearchInput
+              value={deliveryAddress}
+              onChange={(text) => {
+                setDeliveryAddress(text);
+                if (deliveryLat || deliveryLng) {
+                  setDeliveryLat("");
+                  setDeliveryLng("");
+                }
+              }}
+              onPick={(place) => {
+                setDeliveryAddress(place.label);
+                setDeliveryLat(String(place.lat));
+                setDeliveryLng(String(place.lng));
+              }}
+            />
+          </div>
+          <div>
+            <Label>Delivery latitude</Label>
+            <Input inputMode="decimal" value={deliveryLat} onChange={(e) => setDeliveryLat(e.target.value)} />
+          </div>
+          <div>
+            <Label>Delivery longitude</Label>
+            <Input inputMode="decimal" value={deliveryLng} onChange={(e) => setDeliveryLng(e.target.value)} />
+          </div>
+          <div className="md:col-span-2">
+            <Label>Billing address (optional)</Label>
+            <Input
+              value={receiverBillingAddress}
+              onChange={(e) => setReceiverBillingAddress(e.target.value)}
+            />
+          </div>
+        </div>
+      </FormSection>
+
+      <FormSection
+        title="Package & order details"
+        description="Describe what you are ordering so the sender can review your request."
+      >
+        <PackageListFields packages={packages} onChange={setPackages} />
+
+        <div>
+          <Label>Order description</Label>
+          <textarea
+            className="mt-1 flex min-h-[88px] w-full rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            value={packageDescription}
+            onChange={(e) => setPackageDescription(e.target.value)}
+            placeholder="What are you ordering? Include product details the sender needs to review."
           />
         </div>
+
         <div>
-          <Label>Delivery latitude</Label>
-          <Input inputMode="decimal" value={deliveryLat} onChange={(e) => setDeliveryLat(e.target.value)} />
-        </div>
-        <div>
-          <Label>Delivery longitude</Label>
-          <Input inputMode="decimal" value={deliveryLng} onChange={(e) => setDeliveryLng(e.target.value)} />
-        </div>
-        <div className="md:col-span-2">
-          <Label>Billing address (optional)</Label>
+          <Label>Notes (optional)</Label>
           <Input
-            value={receiverBillingAddress}
-            onChange={(e) => setReceiverBillingAddress(e.target.value)}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Delivery instructions, timing, etc."
           />
         </div>
-      </div>
+      </FormSection>
 
-      <PackageListFields packages={packages} onChange={setPackages} />
+      <FormSection
+        title="Payment"
+        description="Choose how payment is handled for this shipment."
+      >
+        <div>
+          <Label>Payment method</Label>
+          <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+            {PAYMENT_METHOD_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Choose PFF (Advanced Payment) if a transporter delivers payment to the producer before
+            goods ship.
+          </p>
+        </div>
 
-      <div>
-        <Label>Order description</Label>
-        <textarea
-          className="mt-1 flex min-h-[80px] w-full rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-          value={packageDescription}
-          onChange={(e) => setPackageDescription(e.target.value)}
-          placeholder="What are you ordering? Include product details the sender needs to review."
-        />
-        <p className="text-xs text-muted-foreground mt-1">
-          The sender uses this to decide whether to accept your shipment request.
-        </p>
-      </div>
+        {isPffPaymentMethod(paymentMethod) ? (
+          <PaymentPackageFields packages={paymentPackages} onChange={setPaymentPackages} />
+        ) : null}
+      </FormSection>
 
-      <div>
-        <Label>Payment method</Label>
-        <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-          {PAYMENT_METHOD_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </Select>
-        <p className="text-xs text-muted-foreground mt-1">
-          Choose PFF (Advanced Payment) if a transporter delivers payment to the producer before
-          goods ship.
-        </p>
-      </div>
-
-      {isPffPaymentMethod(paymentMethod) ? (
-        <PaymentPackageFields packages={paymentPackages} onChange={setPaymentPackages} />
+      {!hideSubmitButton ? (
+        <Button type="submit" disabled={submitting}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Submit shipment request
+        </Button>
       ) : null}
-
-      <div>
-        <Label>Notes (optional)</Label>
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Delivery instructions, timing, etc." />
-      </div>
-
-      <Button type="submit" disabled={submitting}>
-        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Submit shipment request
-      </Button>
     </form>
   );
 }

@@ -7,7 +7,10 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { getNavSectionsForRole, isNavItemActive } from "@/components/layout/navConfig";
+import {
+  getNavSectionsForRole,
+  isNavItemActive,
+} from "@/components/layout/navConfig";
 import { RoleBadge } from "@/components/ui/RoleBadge";
 import { UserMenu } from "./UserMenu";
 
@@ -55,35 +58,39 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
 
   const navContent = (
     <>
-      <div className="h-20 flex items-center gap-3 px-5 border-b border-border">
-        <Image
-          src="/logo.png"
-          alt="Multi-Driver Transport"
-          width={40}
-          height={40}
-          className="rounded-lg"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground leading-tight">Multi-Driver</p>
-          {role ? (
-            <RoleBadge role={role} className="mt-1" />
-          ) : (
-            <p className="text-xs text-muted-foreground">Transport</p>
-          )}
-        </div>
-        {/*
+      <Link href="/">
+        <div className="h-20 flex items-center gap-3 px-5 border-b border-border">
+          <Image
+            src="/logo.png"
+            alt="Multi-Driver Transport"
+            width={40}
+            height={40}
+            className="rounded-lg"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground leading-tight">
+              Multi-Driver
+            </p>
+            {role ? (
+              <RoleBadge role={role} className="mt-1" />
+            ) : (
+              <p className="text-xs text-muted-foreground">Transport</p>
+            )}
+          </div>
+          {/*
           Close button only shows inside the mobile drawer — `lg:hidden`
           keeps it out of the desktop sidebar layout.
         */}
-        <button
-          type="button"
-          onClick={onMobileClose}
-          aria-label="Close navigation"
-          className="lg:hidden h-9 w-9 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onMobileClose}
+            aria-label="Close navigation"
+            className="lg:hidden h-9 w-9 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </Link>
 
       <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
         {sections.map((section, idx) => (
@@ -104,7 +111,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
                     "w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                     active
                       ? "bg-sidebar-active text-primary"
-                      : "text-sidebar-foreground hover:bg-muted hover:text-foreground"
+                      : "text-sidebar-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -138,7 +145,9 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
       <div
         className={cn(
           "lg:hidden fixed inset-0 z-[1100] transition-opacity duration-200",
-          mobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          mobileOpen
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none",
         )}
         aria-hidden={!mobileOpen}
       >
@@ -155,7 +164,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           aria-label="Main navigation"
           className={cn(
             "absolute left-0 top-0 h-full w-72 max-w-[85vw] flex flex-col border-r border-border bg-sidebar shadow-2xl transition-transform duration-200",
-            mobileOpen ? "translate-x-0" : "-translate-x-full"
+            mobileOpen ? "translate-x-0" : "-translate-x-full",
           )}
         >
           {navContent}

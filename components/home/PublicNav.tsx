@@ -50,7 +50,7 @@ export function PublicNav() {
           {!isLoading && (
             <>
               {isAuthenticated ? (
-                <Link href="/driver-zones">
+                <Link href="/dashboard">
                   <Button size="sm">Open app</Button>
                 </Link>
               ) : (
