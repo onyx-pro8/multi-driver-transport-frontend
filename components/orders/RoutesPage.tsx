@@ -10,11 +10,10 @@ import { OrderStatusBadges } from "@/components/orders/OrderStatusBadges";
 import { connectOrder, listOrders, rejectOrder } from "@/lib/api";
 import { getShipmentEntityLabels, shipmentRef } from "@/lib/entityLabels";
 import { showToast } from "@/lib/toast";
-import { isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
-import { OrderPackageEditor } from "@/components/orders/OrderPackageEditor";
+import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
 import { InquiryReviewPanel } from "@/components/orders/InquiryReviewPanel";
 
 export function RoutesPage() {
@@ -231,42 +230,31 @@ export function RoutesPage() {
 
         {selectedOrder ? (
           <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Package · {shipmentRef(selectedOrder.id)}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <OrderPackageEditor
-                  order={selectedOrder}
-                  canEdit={isSender && !isAwaitingConnect(selectedOrder)}
-                  onUpdated={(updated) => {
-                    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-                  }}
-                  onCostsRecalculated={() => setCostRefreshKey((k) => k + 1)}
-                  onMessage={(text, type) => showMessage(text, type)}
-                />
-              </CardContent>
-            </Card>
-            {selectedOrder && isOrderRouteSelectionBlocked(selectedOrder) ? (
+            {selectedOrder && isRejected(selectedOrder) ? (
               <Card>
                 <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                  {isRejected(selectedOrder)
-                    ? "This shipment request was rejected by the sender."
-                    : "A transporter rejected the selected route. Route comparison and selection are no longer available."}
+                  This shipment request was rejected by the sender.
                 </CardContent>
               </Card>
             ) : (
-              <RouteCostComparison
-                orderId={selectedOrder.id}
-                order={selectedOrder}
-                onOrderUpdated={(updated) => {
-                  setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-                }}
-                refreshSignal={costRefreshKey}
-                onMessage={showMessage}
-              />
+              <>
+                {!isAwaitingConnect(selectedOrder) && (
+                  <OrderPossibleRoutes
+                    order={selectedOrder}
+                    refreshSignal={costRefreshKey}
+                    onMessage={showMessage}
+                  />
+                )}
+                <RouteCostComparison
+                  orderId={selectedOrder.id}
+                  order={selectedOrder}
+                  onOrderUpdated={(updated) => {
+                    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+                  }}
+                  refreshSignal={costRefreshKey}
+                  onMessage={showMessage}
+                />
+              </>
             )}
           </div>
         ) : !initialLoading && orders.length > 0 ? (

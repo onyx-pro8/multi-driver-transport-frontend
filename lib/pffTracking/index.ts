@@ -63,4 +63,7 @@ export const PFF_PAYMENT_ROUTE_DIRECTION = "Receiver → sender";
 export const PFF_GOODS_ROUTE_DIRECTION = "Sender → receiver";
 
 export const PFF_DUAL_ROUTE_INTRO =
-  "The receiver sets how payment moves (receiver → sender). The sender sets how goods are delivered (sender → receiver). On the payment route the order receiver sends payment and the order sender receives it.";
+  "The receiver sets how payment moves (receiver → sender). The sender sets how goods are delivered (sender → receiver). Transporters are notified only after both routes are selected.";
+
+export const PFF_PENDING_BOTH_ROUTES_NOTE =
+  "Select both the payment route and the delivery route. Transporters are notified only after both routes are chosen.";

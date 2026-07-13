@@ -7,20 +7,6 @@ export function isRouteConfirmed(
   return routeSelectionStatus === "confirmed";
 }
 
-/** Inquiry rejection or transporter segment rejection — no route preview, costs, or selection. */
-export function isOrderRouteSelectionBlocked(order: {
-  tracking_status?: string;
-  route_selection_status?: string | null;
-  payment_route_selection_status?: string | null;
-  goods_route_selection_status?: string | null;
-}): boolean {
-  if (order.tracking_status === "REJECTED") return true;
-  if (order.route_selection_status === "rejected") return true;
-  if (order.payment_route_selection_status === "rejected") return true;
-  if (order.goods_route_selection_status === "rejected") return true;
-  return false;
-}
-
 export function canMarkPickReady(order: {
   route_selection_status?: string | null;
   pickup_ready_at?: string | null;

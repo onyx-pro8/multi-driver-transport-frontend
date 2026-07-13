@@ -1036,6 +1036,7 @@ export interface RouteConfirmationStatus {
   rejected_count: number;
   total_segments: number;
   progress_percent: number;
+  transporters_notified: boolean;
   segments: SegmentConfirmationDetail[];
 }
 

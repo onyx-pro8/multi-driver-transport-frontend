@@ -25,7 +25,6 @@ import {
   requestSegmentQuote,
   selectRoute,
 } from "@/lib/api";
-import { OrderPackageSummary } from "@/components/orders/OrderPackageSummary";
 import { cn, formatCurrency } from "@/lib/utils";
 import { formatBookingFeePercent } from "@/lib/pricing";
 import { segmentPricingHint } from "@/lib/zonePricing";
@@ -53,9 +52,9 @@ import {
   PFF_GOODS_ROUTE_TITLE,
   PFF_PAYMENT_ROUTE_DIRECTION,
   PFF_PAYMENT_ROUTE_TITLE,
+  PFF_PENDING_BOTH_ROUTES_NOTE,
 } from "@/lib/pffTracking";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
-import { isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
 import { PffOrderStepper } from "@/components/orders/PffOrderStepper";
 import { updateOrderTrackingStatus } from "@/lib/api";
 import type { Order } from "@/types";
@@ -115,7 +114,7 @@ export function RouteCostComparison({
   const showGoodsRoute = isSender || isDriver;
   const canSelectRoute =
     user?.role === "admin" ||
-    (!isPff && (isSender || isReceiver));
+    (!isPff && user?.role === "receiver");
   const [pickupUpdating, setPickupUpdating] = useState(false);
   const [scheduleInput, setScheduleInput] = useState("");
   const [data, setData] = useState<OrderRouteCostComparison | null>(null);
@@ -146,19 +145,6 @@ export function RouteCostComparison({
 
   const load = useCallback(
     async (silent = false) => {
-      if (order && isOrderRouteSelectionBlocked(order)) {
-        setData(null);
-        setSelectedRoute(null);
-        setRouteSelections(null);
-        setConfirmation(null);
-        setPaymentConfirmation(null);
-        setGoodsConfirmation(null);
-        hasDataRef.current = false;
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
       const isFirst = !hasDataRef.current;
       if (!silent && isFirst) {
         setLoading(true);
@@ -239,7 +225,7 @@ export function RouteCostComparison({
         setRefreshing(false);
       }
     },
-    [orderId, order],
+    [orderId],
   );
 
   async function handleSelectRoute(routeId: number) {
@@ -247,7 +233,16 @@ export function RouteCostComparison({
     try {
       await selectRoute(orderId, routeId);
       await load(true);
-      onMessage?.("Route selected. Confirmation requests sent to transporters.");
+      if (isPff) {
+        const selections = await getRouteSelections(orderId);
+        if (selections.payment && selections.goods) {
+          onMessage?.("Both routes selected. Confirmation requests sent to transporters.");
+        } else {
+          onMessage?.("Route saved. Select the other route before transporters are notified.");
+        }
+      } else {
+        onMessage?.("Route selected. Confirmation requests sent to transporters.");
+      }
     } catch (err) {
       onMessage?.(
         err instanceof Error ? err.message : "Failed to select route",
@@ -396,6 +391,21 @@ export function RouteCostComparison({
   }
 
   const routeIncomplete = data?.is_route_complete === false && !data?.route_locked;
+  const pffNeedsBothRoutes =
+    isPff &&
+    data != null &&
+    !data.route_locked &&
+    !(routeSelections?.payment && routeSelections?.goods);
+
+  const pffBothRoutesChosen =
+    Boolean(routeSelections?.payment?.selected_route_id) &&
+    Boolean(routeSelections?.goods?.selected_route_id);
+  const pffTransporterReviewActive =
+    isPff &&
+    pffBothRoutesChosen &&
+    Boolean(data?.route_locked) &&
+    data?.route_lock_reason === "confirmation_pending";
+  const pffCanChangeSelection = !pffTransporterReviewActive && !data?.route_locked;
 
   function renderRouteSection({
     title,
@@ -404,6 +414,7 @@ export function RouteCostComparison({
     emptyMessage,
     canSelect,
     selectLabel,
+    showReviewBadge = true,
   }: {
     title: string;
     routes: RouteCostSummary[];
@@ -411,6 +422,7 @@ export function RouteCostComparison({
     emptyMessage: string;
     canSelect: boolean;
     selectLabel: string;
+    showReviewBadge?: boolean;
   }) {
     return (
       <div className="space-y-3">
@@ -424,7 +436,7 @@ export function RouteCostComparison({
               route={route}
               isSelected={selection?.selected_route_id === route.route_id}
               selectionStatus={
-                selection?.selected_route_id === route.route_id
+                selection?.selected_route_id === route.route_id && showReviewBadge
                   ? selection.status
                   : null
               }
@@ -465,18 +477,6 @@ export function RouteCostComparison({
           ))
         )}
       </div>
-    );
-  }
-
-  if (order && isOrderRouteSelectionBlocked(order)) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {order.tracking_status === "REJECTED"
-            ? "This shipment request was rejected. Routes and costs are not available."
-            : "The selected route was rejected. Route comparison and selection are no longer available."}
-        </CardContent>
-      </Card>
     );
   }
 
@@ -590,27 +590,14 @@ export function RouteCostComparison({
               Booking fee: {formatBookingFeePercent(data.booking_fee_rate)} on
               each segment sub-total
             </p>
-            <OrderPackageSummary
-              order={{
-                package_type: data.package_type,
-                packages: data.packages ?? [],
-                package_factor: data.package_factor,
-                payment_method: order?.payment_method ?? (data.is_pff_order ? "pff" : undefined),
-                payment_packages: order?.payment_packages,
-                weight_lbs: data.package_weight_lbs,
-                package_length: null,
-                package_width: null,
-                package_height: null,
-                dimensions: data.package_dimensions_in ?? "",
-                package_description: "",
-              }}
-            />
           </div>
         )}
         {data?.route_locked && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
             {data.route_lock_reason === "confirmation_pending"
-              ? "Transporters are reviewing this route. Routes and costs stay fixed until they respond or delivery begins."
+              ? isPff
+                ? "Transporters are reviewing both routes. Routes and costs stay fixed until they respond or delivery begins."
+                : "Transporters are reviewing this route. Routes and costs stay fixed until they respond or delivery begins."
               : "Showing the confirmed route snapshot for this order. Routes are not recomputed while delivery is in progress or complete, even if zones or schedules have changed."}
           </div>
         )}
@@ -634,6 +621,11 @@ export function RouteCostComparison({
             <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-sm text-sky-950 dark:text-sky-100">
               {PFF_AIR_SEA_RULE_NOTE}
             </div>
+            {pffNeedsBothRoutes && (
+              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 px-4 py-3 text-sm text-violet-950 dark:text-violet-100">
+                {PFF_PENDING_BOTH_ROUTES_NOTE}
+              </div>
+            )}
             {showPaymentRoute && renderRouteSection({
               title: `${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`,
               routes: data.payment_routes ?? [],
@@ -642,8 +634,9 @@ export function RouteCostComparison({
                 data.is_payment_route_complete === false
                   ? "No complete payment path at the selected time."
                   : "No payment routes found. Recalculate after zones are connected.",
-              canSelect: canSelectPaymentRoute && !data.route_locked,
+              canSelect: canSelectPaymentRoute && pffCanChangeSelection,
               selectLabel: "Select payment route",
+              showReviewBadge: Boolean(paymentConfirmation?.transporters_notified),
             })}
             {showGoodsRoute && renderRouteSection({
               title: `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}`,
@@ -653,16 +646,17 @@ export function RouteCostComparison({
                 data.is_goods_route_complete === false
                   ? "No complete goods path at the selected time."
                   : "No goods routes found. Recalculate after zones are connected.",
-              canSelect: canSelectGoodsRoute && !data.route_locked,
+              canSelect: canSelectGoodsRoute && pffCanChangeSelection,
               selectLabel: "Select goods route",
+              showReviewBadge: Boolean(goodsConfirmation?.transporters_notified),
             })}
-            {showPaymentRoute && paymentConfirmation && routeSelections?.payment && !isDriver && (
+            {showPaymentRoute && paymentConfirmation?.transporters_notified && routeSelections?.payment && !isDriver && (
               <div className="space-y-3 pt-2 border-t border-border">
                 <p className="text-sm font-medium">Payment route confirmation</p>
                 <RouteConfirmationStatusPanel confirmation={paymentConfirmation} />
               </div>
             )}
-            {showGoodsRoute && goodsConfirmation && routeSelections?.goods && !isDriver && (
+            {showGoodsRoute && goodsConfirmation?.transporters_notified && routeSelections?.goods && !isDriver && (
               <div className="space-y-3 pt-2 border-t border-border">
                 <p className="text-sm font-medium">Goods route confirmation</p>
                 <RouteConfirmationStatusPanel confirmation={goodsConfirmation} />

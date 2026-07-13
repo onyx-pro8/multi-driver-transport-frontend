@@ -7,19 +7,16 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listOrders, connectOrder, rejectOrder, notifyPaymentPickedUpToSender, updateOrderTrackingStatus } from "@/lib/api";
-import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
-import { shipmentRef } from "@/lib/entityLabels";
 import { showToast } from "@/lib/toast";
-import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff, canReceiverNotifyPaymentPickedUp, canSenderMarkGoodsReadyForPff, isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
+import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff, canReceiverNotifyPaymentPickedUp, canSenderMarkGoodsReadyForPff } from "@/lib/trackingActions";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order, TrackingStatus } from "@/types";
 import { ReceiverNewOrderModal } from "./ReceiverNewOrderModal";
-import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
-import { OrderPackageEditor } from "@/components/orders/OrderPackageEditor";
-import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
 import { InquiryReviewPanel } from "@/components/orders/InquiryReviewPanel";
 import { RejectionReasonDialog } from "@/components/orders/RejectionReasonDialog";
 import { TrackOrderLink } from "@/components/orders/TrackOrderLink";
+import { OrderDetailModal } from "@/components/orders/OrderDetailModal";
+import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
 
 export function OrdersPage() {
   const { user } = useAuth();
@@ -36,7 +33,7 @@ export function OrdersPage() {
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [rejectionReasonOrder, setRejectionReasonOrder] = useState<Order | null>(null);
-  const [costRefreshKey, setCostRefreshKey] = useState(0);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [orderFormModalOpen, setOrderFormModalOpen] = useState(false);
 
   const isAwaitingConnect = (order: Order) => order.tracking_status === "AWAITING_CONNECT";
@@ -65,7 +62,9 @@ export function OrdersPage() {
     const raw = searchParams.get("orderId");
     if (!raw) return;
     const id = Number(raw);
-    if (Number.isFinite(id)) setSelectedOrderId(id);
+    if (!Number.isFinite(id)) return;
+    setSelectedOrderId(id);
+    setDetailModalOpen(true);
   }, [searchParams]);
 
   const showMessage = useCallback((text: string, type: "success" | "error" = "success") => {
@@ -98,18 +97,24 @@ export function OrdersPage() {
   );
 
   function handleRowClick(order: Order) {
+    setSelectedOrderId(order.id);
     if (isSender && isAwaitingConnect(order)) {
-      setSelectedOrderId(order.id);
       setReviewModalOpen(true);
+      setDetailModalOpen(false);
       return;
     }
     setReviewModalOpen(false);
-    setSelectedOrderId((prev) => (prev === order.id ? null : order.id));
+    setDetailModalOpen(true);
   }
 
   function openReviewModal(order: Order) {
     setSelectedOrderId(order.id);
     setReviewModalOpen(true);
+    setDetailModalOpen(false);
+  }
+
+  function closeDetailModal() {
+    setDetailModalOpen(false);
   }
 
   function closeReviewModal() {
@@ -124,8 +129,8 @@ export function OrdersPage() {
       setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
       setSelectedOrderId(updated.id);
       setReviewModalOpen(false);
-      setCostRefreshKey((k) => k + 1);
-      showMessage("Shipment accepted. Select a route and send confirmations.");
+      setDetailModalOpen(false);
+      showMessage("Shipment accepted. Compare routes on the Routes page.");
       if (route_recalc_warning) {
         showMessage(route_recalc_warning, "error");
       }
@@ -240,7 +245,7 @@ export function OrdersPage() {
                 {isSender ? "Your shipments" : "Shipments to you"}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Click any row to view package details and route options.
+                Click any row to view shipment details. Compare routes and costs on the Routes page.
               </p>
             </div>
             {isReceiver && (
@@ -294,7 +299,7 @@ export function OrdersPage() {
                   {orders.map((order) => {
                     const counterparty = isSender ? order.receiver_name : order.sender_name;
                     const counterpartyPhone = isSender ? order.receiver_phone : order.sender_phone;
-                    const isSelected = selectedOrderId === order.id;
+                    const isSelected = selectedOrderId === order.id && (detailModalOpen || reviewModalOpen);
                     const hasRoute = Boolean(order.selected_route_id);
                     return (
                       <tr
@@ -472,100 +477,26 @@ export function OrdersPage() {
           onMessage={showMessage}
         />
 
-        {selectedOrder && (
-          <div className="space-y-4">
-            {isOrderRouteSelectionBlocked(selectedOrder) && (
-              <Card className="border-destructive/30 bg-destructive/5">
-                <CardContent className="py-4 text-sm text-muted-foreground">
-                  {isRejected(selectedOrder)
-                    ? isSender
-                      ? "You rejected this shipment request."
-                      : "The sender rejected this shipment request."
-                    : "A transporter rejected the selected route. Route comparison and selection are no longer available."}
-                </CardContent>
-              </Card>
-            )}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Package details · {shipmentRef(selectedOrder.id)}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <OrderPackageEditor
-                  order={selectedOrder}
-                  canEdit={isSender && !isAwaitingConnect(selectedOrder)}
-                  onUpdated={(updated) => {
-                    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-                  }}
-                  onCostsRecalculated={() => setCostRefreshKey((k) => k + 1)}
-                  onMessage={(text, type) => showMessage(text, type)}
-                />
-              </CardContent>
-            </Card>
-            {selectedOrder.selected_route_id && selectedOrder.selected_route_segments && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Shipment distance</CardTitle>
-                  <p className="text-xs text-muted-foreground">
-                    Total:{" "}
-                    <span className="font-medium text-foreground">
-                      {formatDistanceKm(selectedOrder.selected_route_total_distance_km)}
-                    </span>{" "}
-                    · Sea {formatDistanceKm(selectedOrder.selected_route_method_distance_km?.sea ?? 0)} · Air{" "}
-                    {formatDistanceKm(selectedOrder.selected_route_method_distance_km?.air ?? 0)}
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {selectedOrder.selected_route_segments.map((segment) => (
-                      <div
-                        key={`${segment.route_id}-${segment.segment_index}-${segment.transport_method}-${segment.from_label}-${segment.to_label}`}
-                        className="rounded-md border border-border/70 px-3 py-2 text-sm"
-                      >
-                        <p className="font-medium">
-                          Segment {segment.segment_index + 1}: {segment.from_label} → {segment.to_label}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {segment.transport_method.toUpperCase()} · {formatDistanceKm(segment.distance_km)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            {!isAwaitingConnect(selectedOrder) && !isOrderRouteSelectionBlocked(selectedOrder) && (
-              <>
-                <OrderPossibleRoutes
-                  order={selectedOrder}
-                  refreshSignal={costRefreshKey}
-                  onMessage={showMessage}
-                />
-                {(isReceiver || isSender) && (
-                  <RouteCostComparison
-                    orderId={selectedOrder.id}
-                    order={selectedOrder}
-                    onOrderUpdated={(updated) => {
-                      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-                    }}
-                    refreshSignal={costRefreshKey}
-                    onMessage={showMessage}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        )}
+        <OrderDetailModal
+          open={detailModalOpen && selectedOrder != null}
+          order={selectedOrder}
+          canEditPackage={isSender && selectedOrder != null && !isAwaitingConnect(selectedOrder)}
+          counterpartyLabel={
+            selectedOrder
+              ? isSender
+                ? `Receiver: ${selectedOrder.receiver_name}`
+                : `Sender: ${selectedOrder.sender_name}`
+              : ""
+          }
+          onClose={closeDetailModal}
+          onUpdated={(updated) => {
+            setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+          }}
+          onMessage={showMessage}
+        />
       </div>
     </>
   );
-}
-
-function formatDistanceKm(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const rounded = Math.round(value * 100) / 100;
-  return `${rounded.toLocaleString()} km`;
 }
 
 function StatTile({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
