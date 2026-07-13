@@ -10,6 +10,7 @@ import { OrderStatusBadges } from "@/components/orders/OrderStatusBadges";
 import { connectOrder, listOrders, rejectOrder } from "@/lib/api";
 import { getShipmentEntityLabels, shipmentRef } from "@/lib/entityLabels";
 import { showToast } from "@/lib/toast";
+import { isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
@@ -248,10 +249,12 @@ export function RoutesPage() {
                 />
               </CardContent>
             </Card>
-            {selectedOrder && isRejected(selectedOrder) ? (
+            {selectedOrder && isOrderRouteSelectionBlocked(selectedOrder) ? (
               <Card>
                 <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                  This shipment request was rejected by the sender.
+                  {isRejected(selectedOrder)
+                    ? "This shipment request was rejected by the sender."
+                    : "A transporter rejected the selected route. Route comparison and selection are no longer available."}
                 </CardContent>
               </Card>
             ) : (

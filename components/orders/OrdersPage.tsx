@@ -10,7 +10,7 @@ import { listOrders, connectOrder, rejectOrder, notifyPaymentPickedUpToSender, u
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
 import { shipmentRef } from "@/lib/entityLabels";
 import { showToast } from "@/lib/toast";
-import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff, canReceiverNotifyPaymentPickedUp, canSenderMarkGoodsReadyForPff } from "@/lib/trackingActions";
+import { canMarkDelivered, canMarkPickReady, canReceiverMarkPickReadyForPff, canReceiverNotifyPaymentPickedUp, canSenderMarkGoodsReadyForPff, isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
 import { cn, formatDate } from "@/lib/utils";
 import type { Order, TrackingStatus } from "@/types";
 import { ReceiverNewOrderModal } from "./ReceiverNewOrderModal";
@@ -474,12 +474,14 @@ export function OrdersPage() {
 
         {selectedOrder && (
           <div className="space-y-4">
-            {isRejected(selectedOrder) && (
+            {isOrderRouteSelectionBlocked(selectedOrder) && (
               <Card className="border-destructive/30 bg-destructive/5">
                 <CardContent className="py-4 text-sm text-muted-foreground">
-                  {isSender
-                    ? "You rejected this shipment request."
-                    : "The sender rejected this shipment request."}
+                  {isRejected(selectedOrder)
+                    ? isSender
+                      ? "You rejected this shipment request."
+                      : "The sender rejected this shipment request."
+                    : "A transporter rejected the selected route. Route comparison and selection are no longer available."}
                 </CardContent>
               </Card>
             )}
@@ -533,7 +535,7 @@ export function OrdersPage() {
                 </CardContent>
               </Card>
             )}
-            {!isAwaitingConnect(selectedOrder) && (
+            {!isAwaitingConnect(selectedOrder) && !isOrderRouteSelectionBlocked(selectedOrder) && (
               <>
                 <OrderPossibleRoutes
                   order={selectedOrder}

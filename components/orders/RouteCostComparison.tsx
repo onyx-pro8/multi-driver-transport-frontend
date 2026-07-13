@@ -55,6 +55,7 @@ import {
   PFF_PAYMENT_ROUTE_TITLE,
 } from "@/lib/pffTracking";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
+import { isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
 import { PffOrderStepper } from "@/components/orders/PffOrderStepper";
 import { updateOrderTrackingStatus } from "@/lib/api";
 import type { Order } from "@/types";
@@ -145,6 +146,19 @@ export function RouteCostComparison({
 
   const load = useCallback(
     async (silent = false) => {
+      if (order && isOrderRouteSelectionBlocked(order)) {
+        setData(null);
+        setSelectedRoute(null);
+        setRouteSelections(null);
+        setConfirmation(null);
+        setPaymentConfirmation(null);
+        setGoodsConfirmation(null);
+        hasDataRef.current = false;
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       const isFirst = !hasDataRef.current;
       if (!silent && isFirst) {
         setLoading(true);
@@ -225,7 +239,7 @@ export function RouteCostComparison({
         setRefreshing(false);
       }
     },
-    [orderId],
+    [orderId, order],
   );
 
   async function handleSelectRoute(routeId: number) {
@@ -451,6 +465,18 @@ export function RouteCostComparison({
           ))
         )}
       </div>
+    );
+  }
+
+  if (order && isOrderRouteSelectionBlocked(order)) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          {order.tracking_status === "REJECTED"
+            ? "This shipment request was rejected. Routes and costs are not available."
+            : "The selected route was rejected. Route comparison and selection are no longer available."}
+        </CardContent>
+      </Card>
     );
   }
 

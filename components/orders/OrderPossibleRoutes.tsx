@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { previewOrderZoneConnections } from "@/lib/api";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
+import { isOrderRouteSelectionBlocked } from "@/lib/trackingActions";
 import { useAuth } from "@/hooks/useAuth";
 import {
   PFF_GOODS_ROUTE_DIRECTION,
@@ -52,9 +53,20 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
     order.sender_lng != null &&
     order.destination_lat != null &&
     order.destination_lng != null;
+  const routeSelectionBlocked = isOrderRouteSelectionBlocked(order);
 
   const load = useCallback(
     async (silent = false) => {
+      if (routeSelectionBlocked) {
+        setGoodsPreview(null);
+        setPaymentPreview(null);
+        setError(null);
+        hasPreviewRef.current = false;
+        setInitialLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       if (!hasCoords) {
         setGoodsPreview(null);
         setPaymentPreview(null);
@@ -102,7 +114,7 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
         setRefreshing(false);
       }
     },
-    [hasCoords, isPff, order.id, showGoodsPreview, showPaymentPreview],
+    [hasCoords, isPff, order.id, routeSelectionBlocked, showGoodsPreview, showPaymentPreview],
   );
 
   useEffect(() => {
@@ -114,6 +126,10 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
     if (refreshSignal === 0 || !hasPreviewRef.current) return;
     void load(true);
   }, [refreshSignal, order.id, load]);
+
+  if (routeSelectionBlocked) {
+    return null;
+  }
 
   if (error && !goodsPreview && !paymentPreview) {
     return (
