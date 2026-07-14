@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Check, DollarSign, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -8,11 +9,19 @@ import {
   getPffPaymentStepIndex,
 } from "@/lib/deliveryProgress";
 import {
+  getOrderStepGuidance,
+  workflowStepFromDeliveryStep,
+  type OrderInstructionRole,
+  type OrderLikeForInstructions,
+  type WorkflowStepId,
+} from "@/lib/orderStepInstructions";
+import {
   PFF_GOODS_ROUTE_DIRECTION,
   PFF_GOODS_ROUTE_TITLE,
   PFF_PAYMENT_ROUTE_DIRECTION,
   PFF_PAYMENT_ROUTE_TITLE,
 } from "@/lib/pffTracking";
+import { OrderStepInstruction } from "@/components/orders/OrderStepInstruction";
 import type { SegmentConfirmationDetail, TrackingStatus } from "@/types";
 
 export const TRACKING_STATUS_LABELS: Record<TrackingStatus, string> = {
@@ -149,6 +158,9 @@ interface RouteStepperRowProps {
   activeIndex: number;
   routeStarted: boolean;
   finalIcon?: "payment" | "goods";
+  selectedStepId?: WorkflowStepId | null;
+  onSelectStep?: (stepId: WorkflowStepId) => void;
+  row?: "payment" | "goods";
 }
 
 function RouteStepperRow({
@@ -158,6 +170,9 @@ function RouteStepperRow({
   activeIndex,
   routeStarted,
   finalIcon,
+  selectedStepId,
+  onSelectStep,
+  row = "payment",
 }: RouteStepperRowProps) {
   return (
     <div className="space-y-2">
@@ -172,10 +187,22 @@ function RouteStepperRow({
           const isUpcoming = !routeStarted || activeIndex < index;
           const isFinal = index === steps.length - 1;
           const label = isFinal && step.finalLabel ? step.finalLabel : step.label;
+          const workflowId = workflowStepFromDeliveryStep(step.id, { isPff: true, row });
+          const isSelected = selectedStepId === workflowId;
 
           return (
             <div key={step.id} className="flex items-center min-w-[72px] sm:min-w-0 sm:flex-1">
-              <div className="flex flex-col items-center flex-1 px-1">
+              <button
+                type="button"
+                onClick={() => onSelectStep?.(workflowId)}
+                className={cn(
+                  "flex flex-col items-center flex-1 px-1 rounded-lg transition-colors",
+                  onSelectStep && "cursor-pointer hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                  isSelected && "bg-emerald-500/10 ring-1 ring-emerald-500/40"
+                )}
+                aria-pressed={isSelected}
+                aria-label={`Step instruction: ${label}`}
+              >
                 <div
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors",
@@ -204,12 +231,14 @@ function RouteStepperRow({
                 <p
                   className={cn(
                     "mt-2 text-center text-[10px] sm:text-xs leading-tight max-w-[88px]",
-                    isCurrent ? "font-semibold text-foreground" : "text-muted-foreground"
+                    isCurrent || isSelected
+                      ? "font-semibold text-foreground"
+                      : "text-muted-foreground"
                   )}
                 >
                   {label}
                 </p>
-              </div>
+              </button>
               {index < steps.length - 1 && (
                 <div
                   className={cn(
@@ -234,6 +263,9 @@ interface DeliveryStatusStepperProps {
   bothRoutesConfirmed?: boolean;
   isPff?: boolean;
   segments?: Pick<SegmentConfirmationDetail, "segment_index" | "leg_status" | "leg_phase">[];
+  /** When provided, shows a Step Instruction panel and makes steps clickable. */
+  order?: OrderLikeForInstructions | null;
+  viewerRole?: OrderInstructionRole | string;
   className?: string;
 }
 
@@ -245,6 +277,8 @@ export function DeliveryStatusStepper({
   bothRoutesConfirmed = false,
   isPff = false,
   segments,
+  order = null,
+  viewerRole = "receiver",
   className,
 }: DeliveryStatusStepperProps) {
   const effectiveStatus = deriveEffectiveTrackingStatus(
@@ -265,6 +299,27 @@ export function DeliveryStatusStepper({
     : -1;
   const activeIndex = currentStepIndex(confirmed, pickupReadyAt, effectiveStatus);
 
+  const instructionOrder: OrderLikeForInstructions | null = order
+    ? {
+        ...order,
+        tracking_status: effectiveStatus,
+        pickup_ready_at: pickupReadyAt ?? order.pickup_ready_at,
+        goods_ready_at: goodsReadyAt ?? order.goods_ready_at,
+        route_selection_status: confirmed
+          ? "confirmed"
+          : order.route_selection_status,
+      }
+    : null;
+
+  const currentWorkflowStep = instructionOrder
+    ? getOrderStepGuidance(instructionOrder, viewerRole).currentStepId
+    : null;
+  const [selectedStepId, setSelectedStepId] = useState<WorkflowStepId | null>(null);
+
+  useEffect(() => {
+    setSelectedStepId(currentWorkflowStep);
+  }, [currentWorkflowStep]);
+
   return (
     <div className={cn("rounded-xl border border-border bg-muted/20 p-4 space-y-4", className)}>
       <div>
@@ -284,6 +339,9 @@ export function DeliveryStatusStepper({
             activeIndex={paymentActiveIndex}
             routeStarted={bothRoutesConfirmed}
             finalIcon="payment"
+            row="payment"
+            selectedStepId={selectedStepId}
+            onSelectStep={instructionOrder ? setSelectedStepId : undefined}
           />
           <RouteStepperRow
             title={PFF_GOODS_ROUTE_TITLE}
@@ -292,6 +350,9 @@ export function DeliveryStatusStepper({
             activeIndex={goodsActiveIndex}
             routeStarted={bothRoutesConfirmed && goodsActiveIndex >= 0}
             finalIcon="goods"
+            row="goods"
+            selectedStepId={selectedStepId}
+            onSelectStep={instructionOrder ? setSelectedStepId : undefined}
           />
         </div>
       ) : (
@@ -300,10 +361,24 @@ export function DeliveryStatusStepper({
             const isComplete = routeConfirmed && activeIndex > index;
             const isCurrent = routeConfirmed && activeIndex === index;
             const isUpcoming = !routeConfirmed || activeIndex < index;
+            const workflowId = workflowStepFromDeliveryStep(step.id);
+            const isSelected = selectedStepId === workflowId;
 
             return (
               <div key={step.id} className="flex items-center min-w-[72px] sm:min-w-0 sm:flex-1">
-                <div className="flex flex-col items-center flex-1 px-1">
+                <button
+                  type="button"
+                  onClick={() => instructionOrder && setSelectedStepId(workflowId)}
+                  disabled={!instructionOrder}
+                  className={cn(
+                    "flex flex-col items-center flex-1 px-1 rounded-lg transition-colors",
+                    instructionOrder &&
+                      "cursor-pointer hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                    isSelected && instructionOrder && "bg-emerald-500/10 ring-1 ring-emerald-500/40"
+                  )}
+                  aria-pressed={isSelected}
+                  aria-label={`Step instruction: ${step.label}`}
+                >
                   <div
                     className={cn(
                       "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors",
@@ -318,12 +393,14 @@ export function DeliveryStatusStepper({
                   <p
                     className={cn(
                       "mt-2 text-center text-[10px] sm:text-xs leading-tight max-w-[88px]",
-                      isCurrent ? "font-semibold text-foreground" : "text-muted-foreground"
+                      isCurrent || isSelected
+                        ? "font-semibold text-foreground"
+                        : "text-muted-foreground"
                     )}
                   >
                     {step.label}
                   </p>
-                </div>
+                </button>
                 {index < DELIVERY_STEPS.length - 1 && (
                   <div
                     className={cn(
@@ -336,6 +413,15 @@ export function DeliveryStatusStepper({
             );
           })}
         </div>
+      )}
+
+      {instructionOrder && (
+        <OrderStepInstruction
+          order={instructionOrder}
+          role={viewerRole}
+          selectedStepId={selectedStepId}
+          showClickHint
+        />
       )}
     </div>
   );

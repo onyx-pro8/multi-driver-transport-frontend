@@ -1,9 +1,8 @@
 /**
  * One-off image compression for /public assets.
  *
- * Re-encodes large PNGs (hero, features, auth-bg, logo) at sane dimensions and
- * compression. Original files are overwritten in place so existing
- * <Image src="/foo.png" /> references keep working.
+ * Re-encodes large PNGs at sane dimensions and compression. Original files are
+ * overwritten in place so existing <Image src="/foo.png" /> references keep working.
  *
  * Run with: npm run optimize-images
  */
@@ -18,8 +17,15 @@ const PUBLIC_DIR = path.resolve(process.cwd(), "public");
 const targets = [
   { file: "home-hero.png", width: 1600, encoder: "png" },
   { file: "home-hero-dark.png", width: 1600, encoder: "png" },
-  { file: "home-features.png", width: 1600, encoder: "png" },
-  { file: "home-features-dark.png", width: 1600, encoder: "png" },
+  { file: "home-dashboard.png", width: 1600, encoder: "png" },
+  { file: "home-dashboard-dark.png", width: 1600, encoder: "png" },
+  { file: "home-drivers.png", width: 900, encoder: "png" },
+  { file: "home-drivers-dark.png", width: 900, encoder: "png" },
+  { file: "home-senders.png", width: 900, encoder: "png" },
+  { file: "home-senders-dark.png", width: 900, encoder: "png" },
+  { file: "home-receivers.png", width: 900, encoder: "png" },
+  { file: "home-receivers-dark.png", width: 900, encoder: "png" },
+  { file: "home-cta.png", width: 1600, encoder: "png" },
   { file: "auth-bg.png", width: 1400, encoder: "png" },
   { file: "logo.png", width: 256, encoder: "png" },
 ];

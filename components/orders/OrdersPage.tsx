@@ -279,7 +279,7 @@ export function OrdersPage() {
                 )}
               </div>
             ) : (
-              <table className="w-full min-w-[1000px] text-sm">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">
                     <th className="py-3 pr-4 font-medium">#</th>
@@ -287,8 +287,6 @@ export function OrdersPage() {
                     <th className="py-3 pr-4 font-medium">Phone</th>
                     <th className="py-3 pr-4 font-medium">From</th>
                     <th className="py-3 pr-4 font-medium">To</th>
-                    <th className="py-3 pr-4 font-medium">Route</th>
-                    {/* <th className="py-3 pr-4 font-medium">Distance</th> */}
                     <th className="py-3 pr-4 font-medium">Route status</th>
                     <th className="py-3 pr-4 font-medium">Delivery status</th>
                     <th className="py-3 pr-4 font-medium">Submitted</th>
@@ -319,24 +317,6 @@ export function OrdersPage() {
                         <td className="py-3 pr-4 max-w-[160px] truncate" title={order.destination_address}>
                           {order.destination_address || "—"}
                         </td>
-                        <td className="py-3 pr-4 max-w-[140px] truncate text-muted-foreground" title={order.selected_route_label ?? undefined}>
-                          {order.selected_route_label || "—"}
-                        </td>
-                        {/* <td className="py-3 pr-4">
-                          {order.selected_route_id ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs font-medium text-foreground">
-                                {formatDistanceKm(order.selected_route_total_distance_km)}
-                              </span>
-                              <span className="text-[11px] text-muted-foreground">
-                                Sea {formatDistanceKm(order.selected_route_method_distance_km?.sea ?? 0)} · Air{" "}
-                                {formatDistanceKm(order.selected_route_method_distance_km?.air ?? 0)}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </td> */}
                         <td className="py-3 pr-4">
                           <div className="flex flex-col gap-1 items-start">
                             {isAwaitingConnect(order) ? (
@@ -481,6 +461,7 @@ export function OrdersPage() {
           open={detailModalOpen && selectedOrder != null}
           order={selectedOrder}
           canEditPackage={isSender && selectedOrder != null && !isAwaitingConnect(selectedOrder)}
+          viewerRole={user?.role}
           counterpartyLabel={
             selectedOrder
               ? isSender

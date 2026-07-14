@@ -6,8 +6,9 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Multi-Driver Transport | H3 Zones",
-  description: "H3 conversion and driver zone creation for multi-driver transport logistics.",
+  title: "Multi-Driver Transport | Smarter routes delivered anywhere",
+  description:
+    "H3-powered multi-driver logistics across air, land, and sea — smart routing, live tracking, and seamless handoffs.",
 };
 
 export default function RootLayout({

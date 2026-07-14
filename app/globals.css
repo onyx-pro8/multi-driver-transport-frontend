@@ -49,39 +49,39 @@
 }
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #f8f9fa;
+  --foreground: #0b0e14;
   --card: #ffffff;
-  --card-foreground: #0f172a;
-  --border: #e2e8f0;
+  --card-foreground: #0b0e14;
+  --border: #e5e7eb;
   --muted: #f1f5f9;
   --muted-foreground: #64748b;
-  --primary: #2563eb;
+  --primary: #0061ff;
   --primary-foreground: #ffffff;
-  --accent: #eff6ff;
+  --accent: #eaf2ff;
   --success: #16a34a;
   --danger: #dc2626;
   --sidebar: #ffffff;
   --sidebar-foreground: #475569;
-  --sidebar-active: #eff6ff;
+  --sidebar-active: #eaf2ff;
 }
 
 .dark {
-  --background: #0f172a;
+  --background: #070a12;
   --foreground: #f8fafc;
-  --card: #1e293b;
+  --card: #121826;
   --card-foreground: #f1f5f9;
-  --border: #334155;
-  --muted: #1e293b;
+  --border: #243044;
+  --muted: #0e131c;
   --muted-foreground: #94a3b8;
   --primary: #3b82f6;
   --primary-foreground: #ffffff;
-  --accent: #1e3a5f;
+  --accent: #121a2e;
   --success: #22c55e;
   --danger: #ef4444;
-  --sidebar: #0f172a;
+  --sidebar: #070a12;
   --sidebar-foreground: #94a3b8;
-  --sidebar-active: #1e3a5f;
+  --sidebar-active: #121a2e;
 }
 
 body {
@@ -92,6 +92,35 @@ body {
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .text-gradient-brand {
+    background-image: linear-gradient(90deg, #2563eb 0%, #4f46e5 45%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .bg-gradient-brand {
+    background-image: linear-gradient(90deg, #2563eb 0%, #4f46e5 50%, #7c3aed 100%);
+  }
+
+  /* Soft dotted map texture for hero depth (avoids flat black plates) */
+  .hero-dot-map {
+    background-image:
+      radial-gradient(ellipse 80% 60% at 70% 45%, rgba(59, 130, 246, 0.14), transparent 55%),
+      radial-gradient(ellipse 50% 40% at 85% 70%, rgba(124, 58, 237, 0.1), transparent 50%),
+      radial-gradient(circle, rgba(148, 163, 184, 0.22) 1px, transparent 1.5px);
+    background-size: auto, auto, 18px 18px;
+    background-position: center, center, 0 0;
+  }
+
+  .dark .hero-dot-map {
+    background-image:
+      radial-gradient(ellipse 70% 55% at 72% 42%, rgba(59, 130, 246, 0.2), transparent 58%),
+      radial-gradient(ellipse 45% 35% at 88% 72%, rgba(139, 92, 246, 0.14), transparent 52%),
+      radial-gradient(circle, rgba(125, 185, 255, 0.28) 1px, transparent 1.5px);
+    background-size: auto, auto, 16px 16px;
   }
 
   .animate-fade-in-up {

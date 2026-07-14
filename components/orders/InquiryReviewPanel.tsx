@@ -8,6 +8,7 @@ import { paymentMethodLabel } from "@/lib/paymentFlow";
 import { formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { RejectInquiryDialog } from "@/components/orders/RejectInquiryDialog";
+import { OrderStepInstruction } from "@/components/orders/OrderStepInstruction";
 
 export function inquiryDescription(order: Pick<Order, "package_description" | "notes">): string {
   return order.package_description?.trim() || order.notes?.trim() || "";
@@ -97,6 +98,8 @@ export function InquiryReviewPanel({
           </div>
 
           <div className="space-y-4 px-5 py-4">
+            <OrderStepInstruction order={order} role={canAct ? "sender" : "receiver"} />
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5">
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

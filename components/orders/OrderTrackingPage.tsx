@@ -314,6 +314,8 @@ export function OrderTrackingPage({ orderId, audience = "default" }: Props) {
             bothRoutesConfirmed={bothRoutesConfirmed}
             isPff={isPff}
             segments={isPff ? mergedSegments : confirmation?.segments}
+            order={order}
+            viewerRole={role}
           />
           {!isPff && confirmation && confirmation.selection_status !== "confirmed" && (
             <OrderProgressBar

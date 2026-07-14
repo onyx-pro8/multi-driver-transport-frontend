@@ -2,20 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { MapPin, X } from "lucide-react";
+import { MapPin, Route as RouteIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { shipmentRef } from "@/lib/entityLabels";
 import { paymentMethodLabel } from "@/lib/paymentFlow";
 import { formatDate } from "@/lib/utils";
 import type { Order } from "@/types";
 import { OrderPackageEditor } from "@/components/orders/OrderPackageEditor";
-import { TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
+import { OrderStepInstruction } from "@/components/orders/OrderStepInstruction";
+import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
+import type { OrderInstructionRole } from "@/lib/orderStepInstructions";
 
 interface Props {
   open: boolean;
   order: Order | null;
   canEditPackage: boolean;
   counterpartyLabel: string;
+  viewerRole?: OrderInstructionRole | string;
   onClose: () => void;
   onUpdated?: (order: Order) => void;
   onMessage?: (text: string, type?: "success" | "error") => void;
@@ -26,6 +29,7 @@ export function OrderDetailModal({
   order,
   canEditPackage,
   counterpartyLabel,
+  viewerRole = "receiver",
   onClose,
   onUpdated,
   onMessage,
@@ -48,6 +52,8 @@ export function OrderDetailModal({
   if (!open || !order || !mounted) return null;
 
   const isRejected = order.tracking_status === "REJECTED";
+  const hasRoute = Boolean(order.selected_route_id);
+  const segments = order.selected_route_segments ?? [];
 
   return createPortal(
     <div
@@ -84,6 +90,8 @@ export function OrderDetailModal({
             </div>
           )}
 
+          <OrderStepInstruction order={order} role={viewerRole} />
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5">
               <p className="text-xs text-muted-foreground">Payment method</p>
@@ -118,6 +126,60 @@ export function OrderDetailModal({
             </div>
           </div>
 
+          <div className="rounded-lg border border-border/70 px-3 py-3 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <RouteIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Route</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {hasRoute
+                      ? order.selected_route_label || `Route #${order.selected_route_id}`
+                      : "No route selected yet"}
+                  </p>
+                </div>
+              </div>
+              {hasRoute && order.route_selection_status ? (
+                <RouteStatusBadge status={order.route_selection_status} />
+              ) : !isRejected ? (
+                <span className="text-xs text-muted-foreground shrink-0">Not selected</span>
+              ) : null}
+            </div>
+
+            {hasRoute && (
+              <p className="text-xs text-muted-foreground">
+                Total {formatDistanceKm(order.selected_route_total_distance_km)} · Sea{" "}
+                {formatDistanceKm(order.selected_route_method_distance_km?.sea ?? 0)} · Air{" "}
+                {formatDistanceKm(order.selected_route_method_distance_km?.air ?? 0)} · Land{" "}
+                {formatDistanceKm(order.selected_route_method_distance_km?.land ?? 0)}
+              </p>
+            )}
+
+            {segments.length > 0 ? (
+              <div className="space-y-2">
+                {segments.map((segment) => (
+                  <div
+                    key={`${segment.route_id}-${segment.segment_index}-${segment.transport_method}-${segment.from_label}-${segment.to_label}`}
+                    className="rounded-md border border-border/70 px-3 py-2 text-sm"
+                  >
+                    <p className="font-medium">
+                      Segment {segment.segment_index + 1}: {segment.from_label} → {segment.to_label}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {segment.transport_method.toUpperCase()} · {formatDistanceKm(segment.distance_km)}
+                      {segment.route_purpose ? ` · ${segment.route_purpose}` : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : !hasRoute && !isRejected ? (
+              <p className="text-xs text-muted-foreground">
+                After the sender accepts this order, open the Routes page to compare costs and choose
+                a preferred multi-transporter path.
+              </p>
+            ) : null}
+          </div>
+
           {(order.package_description?.trim() || order.notes?.trim()) && (
             <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5">
               <p className="text-xs text-muted-foreground">Description</p>
@@ -136,32 +198,6 @@ export function OrderDetailModal({
               onMessage={onMessage}
             />
           </div>
-
-          {order.selected_route_id && order.selected_route_segments && (
-            <div className="rounded-lg border border-border/70 px-3 py-3">
-              <p className="text-sm font-medium">Selected route distance</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Total {formatDistanceKm(order.selected_route_total_distance_km)} · Sea{" "}
-                {formatDistanceKm(order.selected_route_method_distance_km?.sea ?? 0)} · Air{" "}
-                {formatDistanceKm(order.selected_route_method_distance_km?.air ?? 0)}
-              </p>
-              <div className="mt-3 space-y-2">
-                {order.selected_route_segments.map((segment) => (
-                  <div
-                    key={`${segment.route_id}-${segment.segment_index}-${segment.transport_method}-${segment.from_label}-${segment.to_label}`}
-                    className="rounded-md border border-border/70 px-3 py-2 text-sm"
-                  >
-                    <p className="font-medium">
-                      Segment {segment.segment_index + 1}: {segment.from_label} → {segment.to_label}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {segment.transport_method.toUpperCase()} · {formatDistanceKm(segment.distance_km)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex justify-end border-t border-border px-5 py-4">
