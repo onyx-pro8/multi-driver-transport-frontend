@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { PublicNav } from "./PublicNav";
 import { ThemedImage } from "./ThemedImage";
-import { LiveRouteDashboard } from "./LiveRouteDashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
