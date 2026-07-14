@@ -198,7 +198,8 @@ function RouteStepperRow({
                 className={cn(
                   "flex flex-col items-center flex-1 px-1 rounded-lg transition-colors",
                   onSelectStep && "cursor-pointer hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                  isSelected && "bg-emerald-500/10 ring-1 ring-emerald-500/40"
+                  isSelected && "bg-emerald-500/10 ring-1 ring-emerald-500/40",
+                  "py-2"
                 )}
                 aria-pressed={isSelected}
                 aria-label={`Step instruction: ${label}`}
