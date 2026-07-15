@@ -14,7 +14,7 @@ import type { Order, TrackingStatus } from "@/types";
 import { ReceiverNewOrderModal } from "./ReceiverNewOrderModal";
 import { InquiryReviewPanel } from "@/components/orders/InquiryReviewPanel";
 import { RejectionReasonDialog } from "@/components/orders/RejectionReasonDialog";
-import { TrackOrderLink } from "@/components/orders/TrackOrderLink";
+import { canTrackOrder, TrackOrderLink } from "@/components/orders/TrackOrderLink";
 import { OrderDetailModal } from "@/components/orders/OrderDetailModal";
 import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
 
@@ -415,7 +415,7 @@ export function OrdersPage() {
                                 View reason
                               </Button>
                             )}
-                            {!isAwaitingConnect(order) && !isRejected(order) && (
+                            {canTrackOrder(order) && (
                               <TrackOrderLink orderId={order.id} />
                             )}
                           </div>

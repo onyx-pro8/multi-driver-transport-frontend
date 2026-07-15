@@ -25,6 +25,7 @@ import {
 } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { segmentPricingHint } from "@/lib/zonePricing";
+import { pffLegPhaseLabel } from "@/lib/trackingActions";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { RouteSegmentCost, SegmentCostStatus, TransporterQuoteRequest } from "@/types";
 
@@ -55,8 +56,13 @@ const STATUS_BADGE: Record<SegmentCostStatus, string> = {
   requested: "bg-purple-500/10 text-purple-700 dark:text-purple-300",
 };
 
+function quoteLegPhaseKey(phase: TransporterQuoteRequest["segment"]["leg_phase"]): string {
+  if (phase === "payment" || phase === "goods") return phase;
+  return "standard";
+}
+
 function quoteQueueKey(item: TransporterQuoteRequest): string {
-  return `${item.order_id}:${item.priced_zone_id}:${item.segment.transporter_id}`;
+  return `${item.order_id}:${item.priced_zone_id}:${item.segment.transporter_id}:${quoteLegPhaseKey(item.segment.leg_phase)}`;
 }
 
 interface OrderQuoteGroup {
@@ -192,9 +198,13 @@ export function QuoteRequestsPage() {
       await applyManualSegmentCost(segmentId, value);
       await load(true);
       const routeCount = item.affected_routes?.length ?? 1;
+      const legLabel =
+        item.segment.leg_phase === "payment" || item.segment.leg_phase === "goods"
+          ? ` ${pffLegPhaseLabel(item.segment.leg_phase).toLowerCase()}`
+          : "";
       showMessage(
         routeCount > 1
-          ? `Quote saved for ${routeCount} routes on order #${item.order_id}.`
+          ? `Quote saved for ${routeCount}${legLabel} routes on order #${item.order_id}.`
           : "Quote saved."
       );
     } catch (err) {
@@ -218,7 +228,8 @@ export function QuoteRequestsPage() {
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
                 Grouped by order, route, and segment. Enter one quote per leg — it applies to every
-                route on that order that uses the same segment.
+                route on that order that uses the same segment and leg type (payment vs goods on PFF
+                orders are priced separately).
               </p>
             </div>
             <Button
@@ -497,6 +508,10 @@ function SegmentQuoteBlock({
 }) {
   const [showMap, setShowMap] = useState(false);
   const seg = item.segment;
+  const legPhaseLabel =
+    seg.leg_phase === "payment" || seg.leg_phase === "goods"
+      ? pffLegPhaseLabel(seg.leg_phase)
+      : null;
   const affectedRoutes =
     item.affected_routes?.length > 0
       ? item.affected_routes
@@ -505,6 +520,11 @@ function SegmentQuoteBlock({
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div>
+        {legPhaseLabel ? (
+          <p className="text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300 mb-1">
+            {legPhaseLabel}
+          </p>
+        ) : null}
         <p className="text-sm font-medium">
           {seg.from_label} → {seg.to_label}
         </p>
@@ -516,8 +536,9 @@ function SegmentQuoteBlock({
 
       <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 space-y-2">
         <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
-          One quote applies to {affectedRoutes.length} route
-          {affectedRoutes.length === 1 ? "" : "s"} on order #{item.order_id}
+          One quote applies to {affectedRoutes.length}{" "}
+          {legPhaseLabel ? `${legPhaseLabel.toLowerCase()} ` : ""}
+          route{affectedRoutes.length === 1 ? "" : "s"} on order #{item.order_id}
         </p>
         <ul className="space-y-1.5 text-xs text-amber-950/90 dark:text-amber-50/90">
           {affectedRoutes.map((route) => (

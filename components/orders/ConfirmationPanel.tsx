@@ -460,7 +460,10 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   </div>
                 )}
               </div>
-              {canTrackOrder(trackingItem.order_tracking_status) && (
+              {canTrackOrder({
+                tracking_status: trackingItem.order_tracking_status,
+                route_selection_status: trackingItem.route_selection_status,
+              }) && (
                 <TrackOrderLink orderId={selectedGroup.order_id} className="shrink-0" />
               )}
             </div>
@@ -528,6 +531,7 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
         const segmentCostTotal = transporterSegmentCostTotal(group.items);
         const shipmentDistance = transporterDistanceTotalKm(group.items);
         const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
+        const orderRouteSelectionStatus = group.items[0]?.route_selection_status ?? null;
         const hasAvailabilityIssue =
           !group.route_is_complete || (group.schedule_inactive_zones?.length ?? 0) > 0;
         const packageSummary = formatShipmentPackageSummary(group.items[0]);
@@ -584,7 +588,10 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {canTrackOrder(orderTrackingStatus) && (
+                {canTrackOrder({
+                  tracking_status: orderTrackingStatus,
+                  route_selection_status: orderRouteSelectionStatus,
+                }) && (
                   <TrackOrderLink
                     orderId={group.order_id}
                     onClick={(e) => e.stopPropagation()}

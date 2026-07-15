@@ -100,7 +100,14 @@ export function TransporterOrdersPanel() {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {canTrackOrder(item.tracking_status) && (
+                {canTrackOrder({
+                  tracking_status: item.tracking_status,
+                  route_selection_status: item.my_segments.some(
+                    (segment) => segment.confirmation_status === "rejected"
+                  )
+                    ? "rejected"
+                    : null,
+                }) && (
                   <TrackOrderLink orderId={item.order_id} />
                 )}
                 <TrackingStatusBadge status={item.tracking_status} />

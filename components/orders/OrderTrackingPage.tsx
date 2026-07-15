@@ -20,6 +20,7 @@ import {
   getSenderOrderView,
 } from "@/lib/api";
 import { orderTrackingBackLink } from "@/lib/orderTrackingPaths";
+import { canTrackOrder } from "@/components/orders/TrackOrderLink";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
 import {
   isPffTrackingRouteConfirmed,
@@ -245,14 +246,41 @@ export function OrderTrackingPage({ orderId, audience = "default" }: Props) {
   }
 
   const role = user?.role ?? "sender";
-  const routeConfirmed =
-    order.route_selection_status === "confirmed" ||
-    confirmation?.selection_status === "confirmed";
-  const bothRoutesConfirmed = isPffTrackingRouteConfirmed(isPff, routeSelections, routeConfirmed);
   const backLink =
     audience === "transporter"
       ? orderTrackingBackLink("driver")
       : orderTrackingBackLink(role);
+
+  if (!canTrackOrder(order)) {
+    return (
+      <div className="px-6 pb-8 space-y-4">
+        <Link
+          href={backLink.href}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {backLink.label}
+        </Link>
+        <Card>
+          <CardContent className="py-10 text-center space-y-2">
+            <p className="text-sm font-medium">Tracking is not available</p>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">
+              {order.tracking_status === "REJECTED"
+                ? "This shipment was rejected and can no longer be tracked."
+                : order.route_selection_status === "rejected"
+                  ? "The selected route was rejected by a transporter. Choose another route or contact support before tracking can continue."
+                  : "This shipment is not ready for tracking yet."}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const routeConfirmed =
+    order.route_selection_status === "confirmed" ||
+    confirmation?.selection_status === "confirmed";
+  const bothRoutesConfirmed = isPffTrackingRouteConfirmed(isPff, routeSelections, routeConfirmed);
 
   return (
     <div className="px-6 pb-8 space-y-6">
