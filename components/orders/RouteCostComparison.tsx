@@ -821,8 +821,8 @@ export function RouteCostComparison({
         {showPaymentRoute && (
           <div className="space-y-2">
             {paymentMapSlot}
-            <Card>
-              <CardContent className="space-y-4 pt-5">
+            <Card className="flex max-h-[min(28rem,50vh)] flex-col overflow-hidden">
+              <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-5">
                 {data ? (
                   paymentSection
                 ) : (
@@ -838,8 +838,8 @@ export function RouteCostComparison({
         {showGoodsRoute && (
           <div className="space-y-2">
             {goodsMapSlot}
-            <Card>
-              <CardContent className="space-y-4 pt-5">
+            <Card className="flex max-h-[min(28rem,50vh)] flex-col overflow-hidden">
+              <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-5">
                 {data ? (
                   goodsSection
                 ) : (
@@ -873,9 +873,11 @@ export function RouteCostComparison({
   );
 
   const costCard = (
-    <Card>
+    <Card className="flex max-h-[min(36rem,60vh)] flex-col overflow-hidden">
       {sharedHeader}
-      <CardContent className="space-y-4">{routeList}</CardContent>
+      <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+        {routeList}
+      </CardContent>
     </Card>
   );
 
