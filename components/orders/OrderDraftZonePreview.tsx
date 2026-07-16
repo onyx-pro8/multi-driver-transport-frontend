@@ -80,6 +80,18 @@ interface Props {
   error: string | null;
   /** Optional section title (e.g. PFF payment vs goods preview). */
   heading?: string;
+  /**
+   * When true, hide the "Possible connection paths" list under the map.
+   * Used on the Routes page where cost cards are the single route list.
+   */
+  hidePathList?: boolean;
+  /**
+   * Zone ids of the route currently highlighted from the cost list.
+   * When set, the matching connection chain is traced on the map.
+   */
+  highlightedZoneIds?: number[] | null;
+  /** Clear the parent-driven highlight (e.g. "Show all" on the map). */
+  onClearHighlight?: () => void;
 }
 
 /** What the map is currently tracing. */
@@ -131,7 +143,16 @@ function orderZonesByRole(zones: OrderDraftZoneSummary[]): OrderDraftZoneSummary
   });
 }
 
-export function OrderDraftZonePreview({ preview, loading, refreshing = false, error, heading }: Props) {
+export function OrderDraftZonePreview({
+  preview,
+  loading,
+  refreshing = false,
+  error,
+  heading,
+  hidePathList = false,
+  highlightedZoneIds = null,
+  onClearHighlight,
+}: Props) {
   // Hooks must be unconditional — compute view-models even when there's no
   // preview to render so the conditional returns below don't violate the
   // rules-of-hooks.
@@ -153,6 +174,26 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
     setSelection(null);
     setFocusHandoffIndex(null);
   }, [previewKey]);
+
+  // External highlight from the cost-route list (Routes page).
+  const highlightKey = highlightedZoneIds?.join(",") ?? "";
+  useEffect(() => {
+    if (!preview || !highlightedZoneIds || highlightedZoneIds.length === 0) {
+      if (hidePathList) {
+        setSelection(null);
+        setFocusHandoffIndex(null);
+      }
+      return;
+    }
+    const idx = preview.possible_connection_chains.findIndex((chain) => {
+      if (chain.zone_ids.length !== highlightedZoneIds.length) return false;
+      return chain.zone_ids.every((id, i) => id === highlightedZoneIds[i]);
+    });
+    if (idx >= 0) {
+      setSelection({ kind: "chain", idx });
+      setFocusHandoffIndex(null);
+    }
+  }, [preview, highlightKey, hidePathList, highlightedZoneIds]);
 
   const selectedChain = useMemo<OrderDraftChain | null>(() => {
     if (!preview || !selection) return null;
@@ -601,7 +642,7 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
           </div>
         )}
 
-        {preview.possible_connection_chains.length > 0 && (
+        {preview.possible_connection_chains.length > 0 && !hidePathList && (
           <div className="rounded-lg border border-border bg-muted/30 p-3">
             <div className="text-xs font-medium mb-2 flex items-center gap-1 flex-wrap">
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
@@ -662,6 +703,26 @@ export function OrderDraftZonePreview({ preview, loading, refreshing = false, er
                 );
               })}
             </ol>
+          </div>
+        )}
+        {hidePathList && selection?.kind === "chain" && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              Tracing the route selected in the cost list below
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSelection(null);
+                setFocusHandoffIndex(null);
+                onClearHighlight?.();
+              }}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-muted"
+            >
+              <X className="h-3 w-3" />
+              Show all
+            </button>
           </div>
         )}
 

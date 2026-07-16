@@ -18,6 +18,11 @@ interface Props {
   /** Bump to silently reload route preview (e.g. after package edit). */
   refreshSignal?: number;
   onMessage?: (text: string, type?: "success" | "error") => void;
+  /** Hide the duplicate path list under the map (Routes page uses cost cards). */
+  hidePathList?: boolean;
+  /** Zone chain to highlight on the map, driven by the cost route list. */
+  highlightedZoneIds?: number[] | null;
+  onClearHighlight?: () => void;
 }
 
 /**
@@ -27,7 +32,14 @@ interface Props {
  * (sender → receiver); admins and drivers see both. Air/sea legs are
  * one-directional so the two routes differ wherever a hub is involved.
  */
-export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Props) {
+export function OrderPossibleRoutes({
+  order,
+  refreshSignal = 0,
+  onMessage,
+  hidePathList = false,
+  highlightedZoneIds = null,
+  onClearHighlight,
+}: Props) {
   const { user } = useAuth();
   const [goodsPreview, setGoodsPreview] = useState<OrderDraftPreview | null>(null);
   const [paymentPreview, setPaymentPreview] = useState<OrderDraftPreview | null>(null);
@@ -122,6 +134,9 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
         loading={initialLoading}
         refreshing={refreshing}
         error={error}
+        hidePathList={hidePathList}
+        highlightedZoneIds={highlightedZoneIds}
+        onClearHighlight={onClearHighlight}
       />
     );
   }
@@ -135,6 +150,9 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
           refreshing={refreshing}
           error={null}
           heading={`${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`}
+          hidePathList={hidePathList}
+          highlightedZoneIds={highlightedZoneIds}
+          onClearHighlight={onClearHighlight}
         />
       )}
       {showGoodsPreview && (
@@ -146,6 +164,9 @@ export function OrderPossibleRoutes({ order, refreshSignal = 0, onMessage }: Pro
           heading={
             isPff ? `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}` : undefined
           }
+          hidePathList={hidePathList}
+          highlightedZoneIds={highlightedZoneIds}
+          onClearHighlight={onClearHighlight}
         />
       )}
     </div>

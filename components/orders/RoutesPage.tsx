@@ -15,6 +15,7 @@ import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
 import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
 import { InquiryReviewPanel } from "@/components/orders/InquiryReviewPanel";
+import { RoutesAnnounceCard } from "@/components/orders/RoutesAnnounceCard";
 
 export function RoutesPage() {
   const { user } = useAuth();
@@ -30,9 +31,13 @@ export function RoutesPage() {
   const hasOrdersRef = useRef(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [costRefreshKey, setCostRefreshKey] = useState(0);
+  const [announceRefreshKey, setAnnounceRefreshKey] = useState(0);
   const [connecting, setConnecting] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [highlightedZoneIds, setHighlightedZoneIds] = useState<number[] | null>(
+    null,
+  );
 
   const isAwaitingConnect = (order: Order) => order.tracking_status === "AWAITING_CONNECT";
   const isRejected = (order: Order) => order.tracking_status === "REJECTED";
@@ -72,6 +77,11 @@ export function RoutesPage() {
     if (selectedOrderId != null || orders.length === 0) return;
     setSelectedOrderId(orders[0].id);
   }, [orders, selectedOrderId]);
+
+  // Clear map highlight when switching shipments.
+  useEffect(() => {
+    setHighlightedZoneIds(null);
+  }, [selectedOrderId]);
 
   const selectedOrder = useMemo(
     () =>
@@ -132,138 +142,162 @@ export function RoutesPage() {
 
   return (
     <>
-      <div className="px-6 pb-8 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <RouteIcon className="h-4 w-4" />
-              Select {entity.indefiniteArticle} {EntityLabel}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {isDriver
-                ? "Pick a shipment to view routes and enter quotes for your segments."
-                : "Pick a shipment to compare possible delivery routes by estimated cost."}
-            </p>
-          </CardHeader>
-          <CardContent>
-            {initialLoading ? (
-              <div className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading {entityLabel}s…
-              </div>
-            ) : orders.length === 0 ? (
-              <div className="py-8 text-center space-y-3">
-                <p className="text-sm text-muted-foreground">No {entityLabel}s yet.</p>
-                {isSender && (
-                  <Link
-                    href="/orders"
-                    className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <Package className="h-4 w-4" />
-                    View shipments on Orders
-                  </Link>
-                )}
-              </div>
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {orders.map((order) => {
-                  const isSelected = selectedOrderId === order.id;
-                  const counterparty = isSender
-                    ? order.receiver_name
-                    : isDriver
-                      ? `${order.sender_name} → ${order.receiver_name}`
-                      : order.sender_name;
-                  return (
-                    <button
-                      key={order.id}
-                      type="button"
-                      onClick={() => selectOrder(order)}
-                      className={cn(
-                        "rounded-xl border p-4 text-left transition-colors",
-                        isSelected
-                          ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                          : "border-border hover:bg-muted/50"
-                      )}
+      <div className="px-6 pb-8">
+        <div className="grid gap-4 lg:grid-cols-[minmax(18rem,20rem)_minmax(0,1fr)] lg:items-start xl:grid-cols-[minmax(24rem,28rem)_minmax(0,1fr)]">
+          {/* Left: shipment list — single column with its own scroll */}
+          <Card className="flex w-full min-w-0 shrink-0 flex-col overflow-hidden self-start lg:sticky lg:top-0 lg:max-h-[calc(100vh-5rem)]">
+            <CardHeader className="shrink-0 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <RouteIcon className="h-4 w-4" />
+                Select {entity.indefiniteArticle} {EntityLabel}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {isDriver
+                  ? "Pick a shipment to view routes and enter quotes for your segments."
+                  : "Pick a shipment to compare possible delivery routes by estimated cost."}
+              </p>
+            </CardHeader>
+            <CardContent className="min-h-0 flex-1 overflow-y-auto pb-4">
+              {initialLoading ? (
+                <div className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading {entityLabel}s…
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="py-8 text-center space-y-3">
+                  <p className="text-sm text-muted-foreground">No {entityLabel}s yet.</p>
+                  {isSender && (
+                    <Link
+                      href="/orders"
+                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium">{shipmentRef(order.id)}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {isSender ? "To" : isDriver ? "Route" : "From"}: {counterparty}
+                      <Package className="h-4 w-4" />
+                      View shipments on Orders
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {orders.map((order) => {
+                    const isSelected = selectedOrderId === order.id;
+                    const counterparty = isSender
+                      ? order.receiver_name
+                      : isDriver
+                        ? `${order.sender_name} → ${order.receiver_name}`
+                        : order.sender_name;
+                    return (
+                      <button
+                        key={order.id}
+                        type="button"
+                        onClick={() => selectOrder(order)}
+                        className={cn(
+                          "rounded-xl border p-3 text-left transition-colors",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                            : "border-border hover:bg-muted/50"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{shipmentRef(order.id)}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                              {isSender ? "To" : isDriver ? "Route" : "From"}: {counterparty}
+                            </p>
+                          </div>
+                          <OrderStatusBadges order={order} compact />
+                        </div>
+                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          <p className="flex items-start gap-1.5">
+                            <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                            <span className="line-clamp-1">{order.sender_address || "—"}</span>
+                          </p>
+                          <p className="flex items-start gap-1.5">
+                            <MapPin className="h-3 w-3 shrink-0 mt-0.5 text-primary" />
+                            <span className="line-clamp-1">{order.destination_address || "—"}</span>
                           </p>
                         </div>
-                        <OrderStatusBadges order={order} compact />
-                      </div>
-                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        <p className="flex items-start gap-1.5">
-                          <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
-                          <span className="line-clamp-1">{order.sender_address || "—"}</span>
+                        <p className="mt-2 text-[10px] text-muted-foreground">
+                          {formatDate(order.created_at)}
                         </p>
-                        <p className="flex items-start gap-1.5">
-                          <MapPin className="h-3 w-3 shrink-0 mt-0.5 text-primary" />
-                          <span className="line-clamp-1">{order.destination_address || "—"}</span>
-                        </p>
-                      </div>
-                      <p className="mt-2 text-[10px] text-muted-foreground">
-                        {formatDate(order.created_at)}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <InquiryReviewPanel
-          open={reviewModalOpen && selectedOrder != null && isAwaitingConnect(selectedOrder)}
-          order={selectedOrder}
-          canAct={isSender}
-          accepting={selectedOrder != null && connecting === selectedOrder.id}
-          rejecting={selectedOrder != null && rejecting === selectedOrder.id}
-          onClose={closeReviewModal}
-          onAccept={() => selectedOrder && void handleConnect(selectedOrder)}
-          onReject={(reason) =>
-            selectedOrder ? handleReject(selectedOrder, reason) : Promise.resolve()
-          }
-        />
-
-        {selectedOrder ? (
-          <div className="space-y-4">
-            {selectedOrder && isRejected(selectedOrder) ? (
-              <Card>
-                <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                  This shipment request was rejected by the sender.
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                {!isAwaitingConnect(selectedOrder) && (
-                  <OrderPossibleRoutes
-                    order={selectedOrder}
-                    refreshSignal={costRefreshKey}
-                    onMessage={showMessage}
-                  />
-                )}
-                <RouteCostComparison
-                  orderId={selectedOrder.id}
-                  order={selectedOrder}
-                  onOrderUpdated={(updated) => {
-                    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-                  }}
-                  refreshSignal={costRefreshKey}
-                  onMessage={showMessage}
-                />
-              </>
-            )}
-          </div>
-        ) : !initialLoading && orders.length > 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Select {entity.indefiniteArticle} {entityLabel} above to view route cost comparison.
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
-        ) : null}
+
+          {/* Right: announce + map + cost comparison — top aligns with left card */}
+          <div className="min-w-0 self-start space-y-3">
+            <InquiryReviewPanel
+              open={reviewModalOpen && selectedOrder != null && isAwaitingConnect(selectedOrder)}
+              order={selectedOrder}
+              canAct={isSender}
+              accepting={selectedOrder != null && connecting === selectedOrder.id}
+              rejecting={selectedOrder != null && rejecting === selectedOrder.id}
+              onClose={closeReviewModal}
+              onAccept={() => selectedOrder && void handleConnect(selectedOrder)}
+              onReject={(reason) =>
+                selectedOrder ? handleReject(selectedOrder, reason) : Promise.resolve()
+              }
+            />
+
+            {selectedOrder ? (
+              isRejected(selectedOrder) ? (
+                <Card>
+                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                    This shipment request was rejected by the sender.
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <RoutesAnnounceCard
+                    order={selectedOrder}
+                    refreshSignal={costRefreshKey + announceRefreshKey}
+                    onOrderUpdated={(updated) => {
+                      setOrders((prev) =>
+                        prev.map((o) => (o.id === updated.id ? updated : o)),
+                      );
+                    }}
+                    onMessage={showMessage}
+                  />
+                  <RouteCostComparison
+                    orderId={selectedOrder.id}
+                    order={selectedOrder}
+                    onOrderUpdated={(updated) => {
+                      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+                    }}
+                    refreshSignal={costRefreshKey}
+                    onMessage={showMessage}
+                    onHighlightRoute={setHighlightedZoneIds}
+                    highlightedZoneIds={highlightedZoneIds}
+                    onRouteSelectionChanged={() =>
+                      setAnnounceRefreshKey((k) => k + 1)
+                    }
+                    mapSlot={
+                      !isAwaitingConnect(selectedOrder) ? (
+                        <OrderPossibleRoutes
+                          order={selectedOrder}
+                          refreshSignal={costRefreshKey}
+                          onMessage={showMessage}
+                          hidePathList
+                          highlightedZoneIds={highlightedZoneIds}
+                          onClearHighlight={() => setHighlightedZoneIds(null)}
+                        />
+                      ) : null
+                    }
+                  />
+                </>
+              )
+            ) : !initialLoading && orders.length > 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                  Select {entity.indefiniteArticle} {entityLabel} to view route cost comparison.
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+        </div>
       </div>
     </>
   );

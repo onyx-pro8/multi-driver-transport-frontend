@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
   DollarSign,
   Loader2,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   applyManualSegmentCost,
   fetchExternalSegmentQuote,
@@ -29,6 +30,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { formatBookingFeePercent } from "@/lib/pricing";
 import { segmentPricingHint } from "@/lib/zonePricing";
 import type {
+  Order,
   OrderRouteCostComparison,
   PricingConfig,
   RouteConfirmationStatus,
@@ -46,18 +48,12 @@ import { GapBridgeCandidates } from "@/components/orders/GapBridgeCandidates";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import {
-  PFF_AIR_SEA_RULE_NOTE,
-  PFF_DUAL_ROUTE_INTRO,
   PFF_GOODS_ROUTE_DIRECTION,
   PFF_GOODS_ROUTE_TITLE,
   PFF_PAYMENT_ROUTE_DIRECTION,
   PFF_PAYMENT_ROUTE_TITLE,
-  PFF_PENDING_BOTH_ROUTES_NOTE,
 } from "@/lib/pffTracking";
 import { isPffPaymentMethod } from "@/lib/paymentFlow";
-import { PffOrderStepper } from "@/components/orders/PffOrderStepper";
-import { updateOrderTrackingStatus } from "@/lib/api";
-import type { Order } from "@/types";
 
 const STATUS_BADGE: Record<RouteCostStatus, string> = {
   complete:
@@ -75,6 +71,32 @@ const SEGMENT_STATUS: Record<SegmentCostStatus, string> = {
   requested: "Cost Requested",
 };
 
+type RouteSortKey = "cost_asc" | "cost_desc" | "segments_asc" | "segments_desc";
+
+function sortRoutes(routes: RouteCostSummary[], sortKey: RouteSortKey): RouteCostSummary[] {
+  const list = [...routes];
+  list.sort((a, b) => {
+    if (sortKey === "cost_asc" || sortKey === "cost_desc") {
+      const aCost = a.total_final_cost;
+      const bCost = b.total_final_cost;
+      if (aCost == null && bCost == null) return a.route_label.localeCompare(b.route_label);
+      if (aCost == null) return 1;
+      if (bCost == null) return -1;
+      const diff = aCost - bCost;
+      return sortKey === "cost_asc" ? diff : -diff;
+    }
+    const diff = a.segment_count - b.segment_count;
+    if (diff !== 0) return sortKey === "segments_asc" ? diff : -diff;
+    return a.route_label.localeCompare(b.route_label);
+  });
+  return list;
+}
+
+function zoneIdsEqual(a: number[] | null | undefined, b: number[] | null | undefined): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((id, i) => id === b[i]);
+}
+
 interface Props {
   orderId: number;
   order?: Order | null;
@@ -82,6 +104,17 @@ interface Props {
   /** Bump to trigger a silent in-place refresh (e.g. after package edit). */
   refreshSignal?: number;
   onMessage?: (text: string, type?: "success" | "error") => void;
+  /** Notify parent so the map can trace this route's zone chain. */
+  onHighlightRoute?: (zoneIds: number[] | null) => void;
+  /** Currently highlighted zone chain (from parent / map sync). */
+  highlightedZoneIds?: number[] | null;
+  /**
+   * When set, announcements render above this slot and the route list sits
+   * directly under it (map + routes stay close on the Routes page).
+   */
+  mapSlot?: ReactNode;
+  /** Fired after a route is selected so the announce card can refresh quickly. */
+  onRouteSelectionChanged?: () => void;
 }
 
 export function RouteCostComparison({
@@ -90,6 +123,10 @@ export function RouteCostComparison({
   onOrderUpdated,
   refreshSignal = 0,
   onMessage,
+  onHighlightRoute,
+  highlightedZoneIds = null,
+  mapSlot,
+  onRouteSelectionChanged,
 }: Props) {
   const { user } = useAuth();
   const isPff = isPffPaymentMethod(order?.payment_method);
@@ -115,7 +152,6 @@ export function RouteCostComparison({
   const canSelectRoute =
     user?.role === "admin" ||
     (!isPff && user?.role === "receiver");
-  const [pickupUpdating, setPickupUpdating] = useState(false);
   const [scheduleInput, setScheduleInput] = useState("");
   const [data, setData] = useState<OrderRouteCostComparison | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<RouteSelection | null>(null);
@@ -133,7 +169,8 @@ export function RouteCostComparison({
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const [recalculating, setRecalculating] = useState(false);
-  const [expandedRouteId, setExpandedRouteId] = useState<number | null>(null);
+  const [breakdownRouteId, setBreakdownRouteId] = useState<number | null>(null);
+  const [sortKey, setSortKey] = useState<RouteSortKey>("cost_asc");
   const [manualInputs, setManualInputs] = useState<Record<number, string>>({});
   const [savingSegment, setSavingSegment] = useState<number | null>(null);
   // const [savingExternal, setSavingExternal] = useState<number | null>(null);
@@ -141,6 +178,22 @@ export function RouteCostComparison({
   const [fetchingExternal, setFetchingExternal] = useState<number | null>(null);
   const [pricingConfig, setPricingConfig] = useState<PricingConfig | null>(
     null,
+  );
+
+  const highlightRoute = useCallback(
+    (route: RouteCostSummary) => {
+      const ids = route.zone_ids ?? null;
+      if (!ids || ids.length === 0) {
+        onHighlightRoute?.(null);
+        return;
+      }
+      if (zoneIdsEqual(ids, highlightedZoneIds)) {
+        onHighlightRoute?.(null);
+      } else {
+        onHighlightRoute?.(ids);
+      }
+    },
+    [highlightedZoneIds, onHighlightRoute],
   );
 
   const load = useCallback(
@@ -233,6 +286,7 @@ export function RouteCostComparison({
     try {
       await selectRoute(orderId, routeId);
       await load(true);
+      onRouteSelectionChanged?.();
       if (isPff) {
         const selections = await getRouteSelections(orderId);
         if (selections.payment && selections.goods) {
@@ -368,34 +422,7 @@ export function RouteCostComparison({
     }
   }
 
-  async function handlePffPickupAvailable() {
-    if (!order) return;
-    setPickupUpdating(true);
-    try {
-      const updated = await updateOrderTrackingStatus(order.id, "PICKUP_AVAILABLE");
-      onOrderUpdated?.({
-        ...order,
-        tracking_status: updated.tracking_status,
-        pickup_ready_at: updated.pickup_ready_at,
-      });
-      await load(true);
-      onMessage?.("Pickup available sent to transporters.");
-    } catch (err) {
-      onMessage?.(
-        err instanceof Error ? err.message : "Failed to send pickup available",
-        "error"
-      );
-    } finally {
-      setPickupUpdating(false);
-    }
-  }
-
   const routeIncomplete = data?.is_route_complete === false && !data?.route_locked;
-  const pffNeedsBothRoutes =
-    isPff &&
-    data != null &&
-    !data.route_locked &&
-    !(routeSelections?.payment && routeSelections?.goods);
 
   const pffBothRoutesChosen =
     Boolean(routeSelections?.payment?.selected_route_id) &&
@@ -424,17 +451,39 @@ export function RouteCostComparison({
     selectLabel: string;
     showReviewBadge?: boolean;
   }) {
+    const sorted = sortRoutes(routes, sortKey);
     return (
       <div className="space-y-3">
-        <p className="text-sm font-medium">{title}</p>
-        {routes.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium">{title}</p>
+          {routes.length > 1 && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`route-sort-${title}`} className="text-xs text-muted-foreground whitespace-nowrap">
+                Sort by
+              </Label>
+              <Select
+                id={`route-sort-${title}`}
+                className="h-8 w-[11.5rem] text-xs"
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as RouteSortKey)}
+              >
+                <option value="cost_asc">Cost (low → high)</option>
+                <option value="cost_desc">Cost (high → low)</option>
+                <option value="segments_asc">Segments (few → many)</option>
+                <option value="segments_desc">Segments (many → few)</option>
+              </Select>
+            </div>
+          )}
+        </div>
+        {sorted.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">{emptyMessage}</p>
         ) : (
-          routes.map((route) => (
+          sorted.map((route) => (
             <RouteCard
               key={route.route_id}
               route={route}
               isSelected={selection?.selected_route_id === route.route_id}
+              isHighlighted={zoneIdsEqual(route.zone_ids, highlightedZoneIds)}
               selectionStatus={
                 selection?.selected_route_id === route.route_id && showReviewBadge
                   ? selection.status
@@ -447,30 +496,11 @@ export function RouteCostComparison({
               selecting={selectingRouteId === route.route_id}
               onSelectRoute={() => handleSelectRoute(route.route_id)}
               selectRouteLabel={selectLabel}
-              expanded={expandedRouteId === route.route_id}
-              onToggle={() =>
-                setExpandedRouteId((prev) =>
-                  prev === route.route_id ? null : route.route_id,
-                )
-              }
-              canEnterManual={canEnterManual}
-              canRequestQuote={canRequestQuote}
-              manualInputs={manualInputs}
-              onManualInputChange={(id, val) =>
-                setManualInputs((prev) => ({ ...prev, [id]: val }))
-              }
-              onManualSave={handleManualSave}
-              onRequestQuote={handleRequestQuote}
-              onFetchExternal={handleFetchExternal}
-              externalQuoteConfigured={
-                pricingConfig?.external_quote_configured ?? false
-              }
-              bookingFeeRate={
-                pricingConfig?.booking_fee_rate ?? data?.booking_fee_rate ?? 0.02
-              }
-              savingSegment={savingSegment}
-              requestingQuote={requestingQuote}
-              fetchingExternal={fetchingExternal}
+              onHighlight={() => highlightRoute(route)}
+              onShowBreakdown={() => {
+                onHighlightRoute?.(route.zone_ids ?? null);
+                setBreakdownRouteId(route.route_id);
+              }}
               userId={user?.id}
               userRole={user?.role}
             />
@@ -482,16 +512,182 @@ export function RouteCostComparison({
 
   if (loading) {
     return (
-      <Card>
-        <CardContent className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading route cost comparison…
-        </CardContent>
-      </Card>
+      <div className="space-y-2">
+        {mapSlot}
+        <Card>
+          <CardContent className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading route cost comparison…
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
-  return (
+  const statusNotices = (
+    <>
+      {(data?.schedule_inactive_zones?.length ?? 0) > 0 && (
+        <ScheduleInactiveNotice zones={data?.schedule_inactive_zones ?? []} />
+      )}
+      {data?.route_locked && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+          {data.route_lock_reason === "confirmation_pending"
+            ? isPff
+              ? "Transporters are reviewing both routes. Routes and costs stay fixed until they respond or delivery begins."
+              : "Transporters are reviewing this route. Routes and costs stay fixed until they respond or delivery begins."
+            : "Showing the confirmed route snapshot for this order. Routes are not recomputed while delivery is in progress or complete, even if zones or schedules have changed."}
+        </div>
+      )}
+      {data?.is_route_complete === false && !data.route_locked && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-3 text-sm text-amber-950 dark:text-amber-100">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-medium">Route incomplete — costs not calculated</p>
+              <p className="text-xs opacity-90">
+                There is no full pickup-to-drop-off path at the selected time. Fix the gap
+                below or choose a different route time, then recalculate.
+              </p>
+            </div>
+          </div>
+          {data.gap ? <GapBridgeCandidates gap={data.gap} /> : null}
+        </div>
+      )}
+    </>
+  );
+
+  const routeTimeControl =
+    data && !data.route_locked && canRecalculate ? (
+      <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+        <Label className="text-xs">Route time (operating hours)</Label>
+        <Input
+          type="datetime-local"
+          className="max-w-xs text-sm"
+          value={scheduleInput}
+          onChange={(e) => setScheduleInput(e.target.value)}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Routes use transporters active at this time. Leave empty for now, then
+          recalculate.
+        </p>
+      </div>
+    ) : null;
+
+  const routeList = (
+    <>
+      {routeTimeControl}
+      {statusNotices}
+      {isPff && data ? (
+        <>
+          {showPaymentRoute && renderRouteSection({
+            title: `${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`,
+            routes: data.payment_routes ?? [],
+            selection: routeSelections?.payment ?? null,
+            emptyMessage:
+              data.is_payment_route_complete === false
+                ? "No complete payment path at the selected time."
+                : "No payment routes found. Recalculate after zones are connected.",
+            canSelect: canSelectPaymentRoute && pffCanChangeSelection,
+            selectLabel: "Select payment route",
+            showReviewBadge: Boolean(paymentConfirmation?.transporters_notified),
+          })}
+          {showGoodsRoute && renderRouteSection({
+            title: `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}`,
+            routes: data.goods_routes ?? [],
+            selection: routeSelections?.goods ?? null,
+            emptyMessage:
+              data.is_goods_route_complete === false
+                ? "No complete goods path at the selected time."
+                : "No goods routes found. Recalculate after zones are connected.",
+            canSelect: canSelectGoodsRoute && pffCanChangeSelection,
+            selectLabel: "Select goods route",
+            showReviewBadge: Boolean(goodsConfirmation?.transporters_notified),
+          })}
+          {showPaymentRoute && paymentConfirmation?.transporters_notified && routeSelections?.payment && !isDriver && (
+            <div className="space-y-3 pt-2 border-t border-border">
+              <p className="text-sm font-medium">Payment route confirmation</p>
+              <RouteConfirmationStatusPanel confirmation={paymentConfirmation} />
+            </div>
+          )}
+          {showGoodsRoute && goodsConfirmation?.transporters_notified && routeSelections?.goods && !isDriver && (
+            <div className="space-y-3 pt-2 border-t border-border">
+              <p className="text-sm font-medium">Goods route confirmation</p>
+              <RouteConfirmationStatusPanel confirmation={goodsConfirmation} />
+            </div>
+          )}
+        </>
+      ) : !data || data.routes.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">
+          {data?.route_locked
+            ? "No saved route data found for this order."
+            : data?.is_route_complete === false
+              ? "No costs to show until a complete route exists."
+              : "No complete routes found for this order. Ensure pickup and destination are covered by connected transport zones that are within their operating hours, then recalculate."}
+        </p>
+      ) : (
+        <>
+          {data.routes.length > 1 && (
+            <div className="flex items-center justify-end gap-2">
+              <Label htmlFor="route-sort-standard" className="text-xs text-muted-foreground whitespace-nowrap">
+                Sort by
+              </Label>
+              <Select
+                id="route-sort-standard"
+                className="h-8 w-[11.5rem] text-xs"
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as RouteSortKey)}
+              >
+                <option value="cost_asc">Cost (low → high)</option>
+                <option value="cost_desc">Cost (high → low)</option>
+                <option value="segments_asc">Segments (few → many)</option>
+                <option value="segments_desc">Segments (many → few)</option>
+              </Select>
+            </div>
+          )}
+          {sortRoutes(data.routes, sortKey).map((route) => (
+            <RouteCard
+              key={route.route_id}
+              route={route}
+              isSelected={selectedRoute?.selected_route_id === route.route_id}
+              isHighlighted={zoneIdsEqual(route.zone_ids, highlightedZoneIds)}
+              selectionStatus={
+                selectedRoute?.selected_route_id === route.route_id
+                  ? selectedRoute.status
+                  : null
+              }
+              canSelectRoute={canSelectRoute && !data.route_locked}
+              selecting={selectingRouteId === route.route_id}
+              onSelectRoute={() => handleSelectRoute(route.route_id)}
+              selectRouteLabel="Select route"
+              onHighlight={() => highlightRoute(route)}
+              onShowBreakdown={() => {
+                onHighlightRoute?.(route.zone_ids ?? null);
+                setBreakdownRouteId(route.route_id);
+              }}
+              userId={user?.id}
+              userRole={user?.role}
+            />
+          ))}
+        </>
+      )}
+      {confirmation && selectedRoute && !isPff && !isDriver && (
+        <div className="space-y-3 pt-2 border-t border-border">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium">Route confirmation status</p>
+            <Link
+              href={`/orders/${orderId}/tracking`}
+              className="text-xs text-primary hover:underline"
+            >
+              View tracking map →
+            </Link>
+          </div>
+          <RouteConfirmationStatusPanel confirmation={confirmation} />
+        </div>
+      )}
+    </>
+  );
+
+  const costCard = (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
@@ -540,238 +736,65 @@ export function RouteCostComparison({
           {routeIncomplete ? "Check route time" : "Recalculate Costs"}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {order && isPff && (
-          <PffOrderStepper
-            order={order}
-            selections={routeSelections}
-            paymentConfirmation={paymentConfirmation}
-            goodsConfirmation={goodsConfirmation}
-            onMarkPickupAvailable={
-              isReceiver ? () => void handlePffPickupAvailable() : undefined
-            }
-            pickupUpdating={pickupUpdating}
-          />
-        )}
-        {data && (
-          <div className="space-y-2">
-            {(data.schedule_inactive_zones?.length ?? 0) > 0 && (
-              <ScheduleInactiveNotice zones={data.schedule_inactive_zones ?? []} />
-            )}
-            {!data.route_locked && canRecalculate && (
-              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                <Label className="text-xs">Route time (operating hours)</Label>
-                <Input
-                  type="datetime-local"
-                  className="max-w-xs text-sm"
-                  value={scheduleInput}
-                  onChange={(e) => setScheduleInput(e.target.value)}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Routes use transporters active at this time. Leave empty for now, then
-                  recalculate.
-                </p>
-              </div>
-            )}
-            {data.is_pff_order && (
-              <p className="text-xs text-violet-800 dark:text-violet-200 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2">
-                {PFF_DUAL_ROUTE_INTRO}
-                {(data.pff_factor ?? 0) > 0 && (
-                  <>
-                    {" "}
-                    The payment route carries an additional PFF surcharge of{" "}
-                    {((data.pff_factor ?? 0) * 100).toFixed(0)}% on top of its
-                    transport cost.
-                  </>
-                )}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Booking fee: {formatBookingFeePercent(data.booking_fee_rate)} on
-              each segment sub-total
-            </p>
-          </div>
-        )}
-        {data?.route_locked && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
-            {data.route_lock_reason === "confirmation_pending"
-              ? isPff
-                ? "Transporters are reviewing both routes. Routes and costs stay fixed until they respond or delivery begins."
-                : "Transporters are reviewing this route. Routes and costs stay fixed until they respond or delivery begins."
-              : "Showing the confirmed route snapshot for this order. Routes are not recomputed while delivery is in progress or complete, even if zones or schedules have changed."}
-          </div>
-        )}
-        {data?.is_route_complete === false && !data.route_locked && (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-3 text-sm text-amber-950 dark:text-amber-100">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-medium">Route incomplete — costs not calculated</p>
-                <p className="text-xs opacity-90">
-                  There is no full pickup-to-drop-off path at the selected time. Fix the gap
-                  below or choose a different route time, then recalculate.
-                </p>
-              </div>
-            </div>
-            {data.gap ? <GapBridgeCandidates gap={data.gap} /> : null}
-          </div>
-        )}
-        {isPff && data ? (
-          <>
-            <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-sm text-sky-950 dark:text-sky-100">
-              {PFF_AIR_SEA_RULE_NOTE}
-            </div>
-            {pffNeedsBothRoutes && (
-              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 px-4 py-3 text-sm text-violet-950 dark:text-violet-100">
-                {PFF_PENDING_BOTH_ROUTES_NOTE}
-              </div>
-            )}
-            {showPaymentRoute && renderRouteSection({
-              title: `${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`,
-              routes: data.payment_routes ?? [],
-              selection: routeSelections?.payment ?? null,
-              emptyMessage:
-                data.is_payment_route_complete === false
-                  ? "No complete payment path at the selected time."
-                  : "No payment routes found. Recalculate after zones are connected.",
-              canSelect: canSelectPaymentRoute && pffCanChangeSelection,
-              selectLabel: "Select payment route",
-              showReviewBadge: Boolean(paymentConfirmation?.transporters_notified),
-            })}
-            {showGoodsRoute && renderRouteSection({
-              title: `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}`,
-              routes: data.goods_routes ?? [],
-              selection: routeSelections?.goods ?? null,
-              emptyMessage:
-                data.is_goods_route_complete === false
-                  ? "No complete goods path at the selected time."
-                  : "No goods routes found. Recalculate after zones are connected.",
-              canSelect: canSelectGoodsRoute && pffCanChangeSelection,
-              selectLabel: "Select goods route",
-              showReviewBadge: Boolean(goodsConfirmation?.transporters_notified),
-            })}
-            {showPaymentRoute && paymentConfirmation?.transporters_notified && routeSelections?.payment && !isDriver && (
-              <div className="space-y-3 pt-2 border-t border-border">
-                <p className="text-sm font-medium">Payment route confirmation</p>
-                <RouteConfirmationStatusPanel confirmation={paymentConfirmation} />
-              </div>
-            )}
-            {showGoodsRoute && goodsConfirmation?.transporters_notified && routeSelections?.goods && !isDriver && (
-              <div className="space-y-3 pt-2 border-t border-border">
-                <p className="text-sm font-medium">Goods route confirmation</p>
-                <RouteConfirmationStatusPanel confirmation={goodsConfirmation} />
-              </div>
-            )}
-          </>
-        ) : !data || data.routes.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">
-            {data?.route_locked
-              ? "No saved route data found for this order."
-              : data?.is_route_complete === false
-                ? "No costs to show until a complete route exists."
-                : "No complete routes found for this order. Ensure pickup and destination are covered by connected transport zones that are within their operating hours, then recalculate."}
-          </p>
-        ) : (
-          data.routes.map((route) => (
-            <RouteCard
-              key={route.route_id}
-              route={route}
-              isSelected={selectedRoute?.selected_route_id === route.route_id}
-              selectionStatus={
-                selectedRoute?.selected_route_id === route.route_id
-                  ? selectedRoute.status
-                  : null
-              }
-              canSelectRoute={canSelectRoute && !data.route_locked}
-              selecting={selectingRouteId === route.route_id}
-              onSelectRoute={() => handleSelectRoute(route.route_id)}
-              selectRouteLabel="Select route"
-              expanded={expandedRouteId === route.route_id}
-              onToggle={() =>
-                setExpandedRouteId((prev) =>
-                  prev === route.route_id ? null : route.route_id,
-                )
-              }
-              canEnterManual={canEnterManual}
-              canRequestQuote={canRequestQuote}
-              manualInputs={manualInputs}
-              onManualInputChange={(id, val) =>
-                setManualInputs((prev) => ({ ...prev, [id]: val }))
-              }
-              onManualSave={handleManualSave}
-              onRequestQuote={handleRequestQuote}
-              onFetchExternal={handleFetchExternal}
-              externalQuoteConfigured={
-                pricingConfig?.external_quote_configured ?? false
-              }
-              bookingFeeRate={
-                pricingConfig?.booking_fee_rate ?? data?.booking_fee_rate ?? 0.02
-              }
-              savingSegment={savingSegment}
-              requestingQuote={requestingQuote}
-              fetchingExternal={fetchingExternal}
-              userId={user?.id}
-              userRole={user?.role}
-            />
-          ))
-        )}
-        {confirmation && selectedRoute && !isPff && !isDriver && (
-          <div className="space-y-3 pt-2 border-t border-border">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium">Route confirmation status</p>
-              <Link
-                href={`/orders/${orderId}/tracking`}
-                className="text-xs text-primary hover:underline"
-              >
-                View tracking map →
-              </Link>
-            </div>
-            <RouteConfirmationStatusPanel confirmation={confirmation} />
-          </div>
-        )}
-      </CardContent>
+      <CardContent className="space-y-4">{routeList}</CardContent>
     </Card>
+  );
+
+  const breakdownModal = (
+    <CostBreakdownModal
+      open={breakdownRouteId != null}
+      route={
+        breakdownRouteId == null
+          ? null
+          : [
+              ...(data?.routes ?? []),
+              ...(data?.payment_routes ?? []),
+              ...(data?.goods_routes ?? []),
+            ].find((r) => r.route_id === breakdownRouteId) ?? null
+      }
+      onClose={() => setBreakdownRouteId(null)}
+      canEnterManual={canEnterManual}
+      canRequestQuote={canRequestQuote}
+      manualInputs={manualInputs}
+      onManualInputChange={(id, val) =>
+        setManualInputs((prev) => ({ ...prev, [id]: val }))
+      }
+      onManualSave={handleManualSave}
+      onRequestQuote={handleRequestQuote}
+      onFetchExternal={handleFetchExternal}
+      externalQuoteConfigured={
+        pricingConfig?.external_quote_configured ?? false
+      }
+      bookingFeeRate={
+        pricingConfig?.booking_fee_rate ?? data?.booking_fee_rate ?? 0.02
+      }
+      savingSegment={savingSegment}
+      requestingQuote={requestingQuote}
+      fetchingExternal={fetchingExternal}
+      userId={user?.id}
+      userRole={user?.role}
+    />
+  );
+
+  if (mapSlot) {
+    return (
+      <div className="space-y-2">
+        {mapSlot}
+        {costCard}
+        {breakdownModal}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {costCard}
+      {breakdownModal}
+    </>
   );
 }
 
-function RouteCard({
-  route,
-  isSelected,
-  selectionStatus,
-  canSelectRoute,
-  selecting,
-  onSelectRoute,
-  selectRouteLabel = "Select route",
-  selectionBlockedReason,
-  expanded,
-  onToggle,
-  canEnterManual,
-  canRequestQuote,
-  manualInputs,
-  onManualInputChange,
-  onManualSave,
-  // onExternalSave,
-  onRequestQuote,
-  onFetchExternal,
-  externalQuoteConfigured,
-  bookingFeeRate,
-  savingSegment,
-  // savingExternal,
-  requestingQuote,
-  fetchingExternal,
-  userId,
-  userRole,
-}: {
-  route: RouteCostSummary;
-  isSelected: boolean;
-  selectionStatus: import("@/types").RouteSelectionStatus | null;
-  canSelectRoute: boolean;
-  selecting: boolean;
-  onSelectRoute: () => void;
-  selectRouteLabel?: string;
-  selectionBlockedReason?: string | null;
-  expanded: boolean;
-  onToggle: () => void;
+type BreakdownProps = {
   canEnterManual: boolean;
   canRequestQuote: boolean;
   externalQuoteConfigured: boolean;
@@ -779,13 +802,41 @@ function RouteCard({
   manualInputs: Record<number, string>;
   onManualInputChange: (id: number, val: string) => void;
   onManualSave: (seg: RouteSegmentCost) => void;
-  // onExternalSave: (seg: RouteSegmentCost) => void;
   onRequestQuote: (seg: RouteSegmentCost) => void;
   onFetchExternal: (seg: RouteSegmentCost) => void;
   savingSegment: number | null;
-  // savingExternal: number | null;
   requestingQuote: number | null;
   fetchingExternal: number | null;
+  userId?: number;
+  userRole?: string;
+};
+
+function RouteCard({
+  route,
+  isSelected,
+  isHighlighted,
+  selectionStatus,
+  canSelectRoute,
+  selecting,
+  onSelectRoute,
+  selectRouteLabel = "Select route",
+  selectionBlockedReason,
+  onHighlight,
+  onShowBreakdown,
+  userId,
+  userRole,
+}: {
+  route: RouteCostSummary;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  selectionStatus: import("@/types").RouteSelectionStatus | null;
+  canSelectRoute: boolean;
+  selecting: boolean;
+  onSelectRoute: () => void;
+  selectRouteLabel?: string;
+  selectionBlockedReason?: string | null;
+  onHighlight: () => void;
+  onShowBreakdown: () => void;
   userId?: number;
   userRole?: string;
 }) {
@@ -809,7 +860,23 @@ function RouteCard({
       }`;
 
   return (
-    <div className="rounded-xl border border-border p-4 space-y-3">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onHighlight}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onHighlight();
+        }
+      }}
+      className={cn(
+        "rounded-xl border p-4 space-y-3 text-left transition-colors cursor-pointer",
+        isHighlighted
+          ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+          : "border-border hover:bg-muted/30",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -834,6 +901,11 @@ function RouteCard({
                 Selected
               </span>
             )}
+            {isHighlighted && (
+              <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                On map
+              </span>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">{segmentSummary}</p>
           <div className="flex flex-wrap gap-1.5">
@@ -847,7 +919,7 @@ function RouteCard({
             ))}
           </div>
         </div>
-        <div className="text-right space-y-2">
+        <div className="text-right space-y-2" onClick={(e) => e.stopPropagation()}>
           <p className="text-lg font-semibold">{costLabel}</p>
           {canSelectRoute && !isSelected && (
             <Button
@@ -872,18 +944,10 @@ function RouteCard({
             type="button"
             size="sm"
             variant="ghost"
-            onClick={onToggle}
+            onClick={onShowBreakdown}
             className="mt-1 block ml-auto"
           >
-            {expanded ? (
-              <>
-                Hide breakdown <ChevronUp className="h-3.5 w-3.5 ml-1" />
-              </>
-            ) : (
-              <>
-                View Cost Breakdown <ChevronDown className="h-3.5 w-3.5 ml-1" />
-              </>
-            )}
+            View Cost Breakdown
           </Button>
         </div>
       </div>
@@ -895,218 +959,288 @@ function RouteCard({
           be missing rates).
         </div>
       )}
+    </div>
+  );
+}
 
-      {expanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-xs">
-            <thead>
-              <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="py-2 pr-2">#</th>
-                <th className="py-2 pr-2">From</th>
-                <th className="py-2 pr-2">To</th>
-                <th className="py-2 pr-2">Transporter</th>
-                <th className="py-2 pr-2">Method</th>
-                <th className="py-2 pr-2">Pricing</th>
-                <th className="py-2 pr-2">Distance</th>
-                <th className="py-2 pr-2">Time</th>
-                <th className="py-2 pr-2">Pkg factor</th>
-                <th className="py-2 pr-2">Base</th>
-                <th className="py-2 pr-2">Travel</th>
-                <th className="py-2 pr-2">Waiting</th>
-                <th className="py-2 pr-2">Booking</th>
-                <th className="py-2 pr-2">Manual</th>
-                <th className="py-2 pr-2">Final</th>
-                <th className="py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleSegments.map((seg) => {
-                const needsEntry =
-                  seg.cost_status === "missing" ||
-                  seg.cost_status === "requested";
-                const ownsSegment =
-                  userRole === "admin" || seg.transporter_id === userId;
-                const canOverride =
-                  canEnterManual &&
-                  ownsSegment &&
-                  (needsEntry || seg.cost_status === "calculated");
-                // const showExternal =
-                //   canOverride &&
-                //   (seg.transport_method === "air" || seg.cost_status === "requested");
-                const showFetchExternal =
-                  externalQuoteConfigured &&
-                  canRequestQuote &&
-                  needsEntry &&
-                  seg.cost_status !== "manual";
-                const showRequestQuote =
-                  canRequestQuote &&
-                  (seg.cost_status === "calculated" ||
-                    seg.cost_status === "missing") &&
-                  seg.transport_method !== "air";
-                return (
-                  <tr
-                    key={seg.segment_id}
-                    className="border-b border-border/50 last:border-0"
-                  >
-                    <td className="py-2 pr-2">{seg.segment_index + 1}</td>
-                    <td className="py-2 pr-2">{seg.from_label}</td>
-                    <td className="py-2 pr-2">{seg.to_label}</td>
-                    <td className="py-2 pr-2">{seg.transporter_name}</td>
-                    <td className="py-2 pr-2 capitalize">
-                      {seg.transport_method}
-                    </td>
-                    <td className="py-2 pr-2 text-[10px] text-muted-foreground max-w-[140px]">
-                      {segmentPricingHint(seg, bookingFeeRate) ?? "—"}
-                    </td>
-                    <td className="py-2 pr-2 whitespace-nowrap">
-                      {seg.distance_km != null ? `${seg.distance_km} km` : "—"}
-                    </td>
-                    <td className="py-2 pr-2 whitespace-nowrap">
-                      {seg.time_hours != null ? `${seg.time_hours} hr` : "—"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {seg.package_factor != null ? seg.package_factor : "—"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {seg.breakdown?.adjusted_base_cost != null
-                        ? formatCurrency(
-                            seg.breakdown.adjusted_base_cost,
-                            seg.currency,
-                          )
-                        : seg.base_fee != null
-                          ? formatCurrency(seg.base_fee, seg.currency)
-                          : "—"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {seg.distance_cost != null
-                        ? formatCurrency(seg.distance_cost, seg.currency)
-                        : "—"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {seg.waiting_cost != null
-                        ? formatCurrency(seg.waiting_cost, seg.currency)
-                        : "—"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {seg.booking_fee != null
-                        ? formatCurrency(seg.booking_fee, seg.currency)
-                        : "—"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {canOverride ? (
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-1">
-                            <Input
-                              className="h-7 w-20 text-xs"
-                              inputMode="decimal"
-                              placeholder="0.00"
-                              value={manualInputs[seg.segment_id] ?? ""}
-                              onChange={(e) =>
-                                onManualInputChange(
-                                  seg.segment_id,
-                                  e.target.value,
-                                )
-                              }
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              disabled={savingSegment === seg.segment_id}
-                              onClick={() => onManualSave(seg)}
-                            >
-                              {seg.cost_status === "calculated"
-                                ? "Override"
-                                : "Save"}
-                            </Button>
-                          </div>
-                          {/* {showExternal && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-[10px]"
-                              disabled={savingExternal === seg.segment_id}
-                              onClick={() => onExternalSave(seg)}
-                            >
-                              Save external quote
-                            </Button>
-                          )} */}
-                          {showFetchExternal && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="h-7 px-2 text-[10px]"
-                              disabled={fetchingExternal === seg.segment_id}
-                              onClick={() => onFetchExternal(seg)}
-                            >
-                              {fetchingExternal === seg.segment_id
-                                ? "Fetching…"
-                                : "Fetch from quote API"}
-                            </Button>
-                          )}
-                        </div>
-                      ) : seg.manual_cost != null ? (
-                        <span>
-                          {formatCurrency(seg.manual_cost, seg.currency)}
-                          {seg.cost_source === "external" ? (
-                            <span className="ml-1 text-[10px] text-muted-foreground">
-                              (ext)
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="py-2 pr-2 font-medium">
-                      {seg.final_cost != null
-                        ? formatCurrency(seg.final_cost, seg.currency)
-                        : seg.cost_status === "requested"
-                          ? "Cost requested"
-                          : "Missing Cost"}
-                    </td>
-                    <td className="py-2">
-                      <div className="flex flex-col gap-1">
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-medium w-fit",
-                            seg.cost_status === "calculated" &&
-                              "bg-green-500/10 text-green-700",
-                            seg.cost_status === "manual" &&
-                              "bg-blue-500/10 text-blue-700",
-                            seg.cost_status === "missing" &&
-                              "bg-red-500/10 text-red-700",
-                            seg.cost_status === "requested" &&
-                              "bg-purple-500/10 text-purple-700",
-                          )}
-                        >
-                          {SEGMENT_STATUS[seg.cost_status]}
-                        </span>
-                        {showRequestQuote && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[10px]"
-                            disabled={requestingQuote === seg.segment_id}
-                            onClick={() => onRequestQuote(seg)}
-                          >
-                            {requestingQuote === seg.segment_id
-                              ? "Requesting…"
-                              : "Request quote"}
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+function CostBreakdownModal({
+  open,
+  route,
+  onClose,
+  ...breakdownProps
+}: {
+  open: boolean;
+  route: RouteCostSummary | null;
+  onClose: () => void;
+} & BreakdownProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open || !route || !mounted) return null;
+
+  const isDriver = breakdownProps.userRole === "driver";
+  const costLabel =
+    route.total_final_cost != null
+      ? formatCurrency(route.total_final_cost, route.currency)
+      : "Cost unavailable";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[210] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cost-breakdown-title"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-[min(96vw,90rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="min-w-0 space-y-1">
+            <h2 id="cost-breakdown-title" className="text-base font-semibold">
+              Cost breakdown · {route.route_label}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {route.segment_count} segment{route.segment_count === 1 ? "" : "s"}
+              {" · "}
+              {isDriver ? "Your cost: " : "Total: "}
+              {costLabel}
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" aria-label="Close" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-      )}
+        <div className="flex-1 overflow-auto px-5 py-4">
+          <CostBreakdownTable route={route} {...breakdownProps} />
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function CostBreakdownTable({
+  route,
+  canEnterManual,
+  canRequestQuote,
+  manualInputs,
+  onManualInputChange,
+  onManualSave,
+  onRequestQuote,
+  onFetchExternal,
+  externalQuoteConfigured,
+  bookingFeeRate,
+  savingSegment,
+  requestingQuote,
+  fetchingExternal,
+  userId,
+  userRole,
+}: { route: RouteCostSummary } & BreakdownProps) {
+  const isDriver = userRole === "driver";
+  const visibleSegments = isDriver
+    ? route.segments.filter((s) => s.transporter_id === userId)
+    : route.segments;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[1100px] text-xs">
+        <thead>
+          <tr className="border-b border-border text-left text-muted-foreground">
+            <th className="py-2 pr-2">#</th>
+            <th className="py-2 pr-2">From</th>
+            <th className="py-2 pr-2">To</th>
+            <th className="py-2 pr-2">Transporter</th>
+            <th className="py-2 pr-2">Method</th>
+            <th className="py-2 pr-2">Pricing</th>
+            <th className="py-2 pr-2">Distance</th>
+            <th className="py-2 pr-2">Time</th>
+            <th className="py-2 pr-2">Pkg factor</th>
+            <th className="py-2 pr-2">Base</th>
+            <th className="py-2 pr-2">Travel</th>
+            <th className="py-2 pr-2">Waiting</th>
+            <th className="py-2 pr-2">Booking</th>
+            <th className="py-2 pr-2">Manual</th>
+            <th className="py-2 pr-2">Final</th>
+            <th className="py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleSegments.map((seg) => {
+            const needsEntry =
+              seg.cost_status === "missing" ||
+              seg.cost_status === "requested";
+            const ownsSegment =
+              userRole === "admin" || seg.transporter_id === userId;
+            const canOverride =
+              canEnterManual &&
+              ownsSegment &&
+              (needsEntry || seg.cost_status === "calculated");
+            const showFetchExternal =
+              externalQuoteConfigured &&
+              canRequestQuote &&
+              needsEntry &&
+              seg.cost_status !== "manual";
+            const showRequestQuote =
+              canRequestQuote &&
+              (seg.cost_status === "calculated" ||
+                seg.cost_status === "missing") &&
+              seg.transport_method !== "air";
+            return (
+              <tr
+                key={seg.segment_id}
+                className="border-b border-border/50 last:border-0"
+              >
+                <td className="py-2 pr-2">{seg.segment_index + 1}</td>
+                <td className="py-2 pr-2">{seg.from_label}</td>
+                <td className="py-2 pr-2">{seg.to_label}</td>
+                <td className="py-2 pr-2">{seg.transporter_name}</td>
+                <td className="py-2 pr-2 capitalize">{seg.transport_method}</td>
+                <td className="py-2 pr-2 text-[10px] text-muted-foreground max-w-[140px]">
+                  {segmentPricingHint(seg, bookingFeeRate) ?? "—"}
+                </td>
+                <td className="py-2 pr-2 whitespace-nowrap">
+                  {seg.distance_km != null ? `${seg.distance_km} km` : "—"}
+                </td>
+                <td className="py-2 pr-2 whitespace-nowrap">
+                  {seg.time_hours != null ? `${seg.time_hours} hr` : "—"}
+                </td>
+                <td className="py-2 pr-2">
+                  {seg.package_factor != null ? seg.package_factor : "—"}
+                </td>
+                <td className="py-2 pr-2">
+                  {seg.breakdown?.adjusted_base_cost != null
+                    ? formatCurrency(seg.breakdown.adjusted_base_cost, seg.currency)
+                    : seg.base_fee != null
+                      ? formatCurrency(seg.base_fee, seg.currency)
+                      : "—"}
+                </td>
+                <td className="py-2 pr-2">
+                  {seg.distance_cost != null
+                    ? formatCurrency(seg.distance_cost, seg.currency)
+                    : "—"}
+                </td>
+                <td className="py-2 pr-2">
+                  {seg.waiting_cost != null
+                    ? formatCurrency(seg.waiting_cost, seg.currency)
+                    : "—"}
+                </td>
+                <td className="py-2 pr-2">
+                  {seg.booking_fee != null
+                    ? formatCurrency(seg.booking_fee, seg.currency)
+                    : "—"}
+                </td>
+                <td className="py-2 pr-2">
+                  {canOverride ? (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        <Input
+                          className="h-7 w-20 text-xs"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={manualInputs[seg.segment_id] ?? ""}
+                          onChange={(e) =>
+                            onManualInputChange(seg.segment_id, e.target.value)
+                          }
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          disabled={savingSegment === seg.segment_id}
+                          onClick={() => onManualSave(seg)}
+                        >
+                          {seg.cost_status === "calculated" ? "Override" : "Save"}
+                        </Button>
+                      </div>
+                      {showFetchExternal && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 px-2 text-[10px]"
+                          disabled={fetchingExternal === seg.segment_id}
+                          onClick={() => onFetchExternal(seg)}
+                        >
+                          {fetchingExternal === seg.segment_id
+                            ? "Fetching…"
+                            : "Fetch from quote API"}
+                        </Button>
+                      )}
+                    </div>
+                  ) : seg.manual_cost != null ? (
+                    <span>
+                      {formatCurrency(seg.manual_cost, seg.currency)}
+                      {seg.cost_source === "external" ? (
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          (ext)
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="py-2 pr-2 font-medium">
+                  {seg.final_cost != null
+                    ? formatCurrency(seg.final_cost, seg.currency)
+                    : seg.cost_status === "requested"
+                      ? "Cost requested"
+                      : "Missing Cost"}
+                </td>
+                <td className="py-2">
+                  <div className="flex flex-col gap-1">
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium w-fit",
+                        seg.cost_status === "calculated" &&
+                          "bg-green-500/10 text-green-700",
+                        seg.cost_status === "manual" &&
+                          "bg-blue-500/10 text-blue-700",
+                        seg.cost_status === "missing" &&
+                          "bg-red-500/10 text-red-700",
+                        seg.cost_status === "requested" &&
+                          "bg-purple-500/10 text-purple-700",
+                      )}
+                    >
+                      {SEGMENT_STATUS[seg.cost_status]}
+                    </span>
+                    {showRequestQuote && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[10px]"
+                        disabled={requestingQuote === seg.segment_id}
+                        onClick={() => onRequestQuote(seg)}
+                      >
+                        {requestingQuote === seg.segment_id
+                          ? "Requesting…"
+                          : "Request quote"}
+                      </Button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
