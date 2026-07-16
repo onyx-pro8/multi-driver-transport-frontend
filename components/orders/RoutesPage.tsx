@@ -11,6 +11,7 @@ import { connectOrder, listOrders, rejectOrder } from "@/lib/api";
 import { getShipmentEntityLabels, shipmentRef } from "@/lib/entityLabels";
 import { showToast } from "@/lib/toast";
 import { cn, formatDate } from "@/lib/utils";
+import { isPffPaymentMethod } from "@/lib/paymentFlow";
 import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
 import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
@@ -22,6 +23,7 @@ export function RoutesPage() {
   const searchParams = useSearchParams();
   const isSender = user?.role === "sender" || user?.role === "admin";
   const isDriver = user?.role === "driver";
+  const isReceiver = user?.role === "receiver" || user?.role === "admin";
   const entity = getShipmentEntityLabels();
   const entityLabel = entity.lowercase;
   const EntityLabel = entity.capitalized;
@@ -38,6 +40,9 @@ export function RoutesPage() {
   const [highlightedZoneIds, setHighlightedZoneIds] = useState<number[] | null>(
     null,
   );
+  const [highlightedPurpose, setHighlightedPurpose] = useState<
+    "payment" | "goods" | null
+  >(null);
 
   const isAwaitingConnect = (order: Order) => order.tracking_status === "AWAITING_CONNECT";
   const isRejected = (order: Order) => order.tracking_status === "REJECTED";
@@ -81,6 +86,7 @@ export function RoutesPage() {
   // Clear map highlight when switching shipments.
   useEffect(() => {
     setHighlightedZoneIds(null);
+    setHighlightedPurpose(null);
   }, [selectedOrderId]);
 
   const selectedOrder = useMemo(
@@ -89,9 +95,47 @@ export function RoutesPage() {
     [selectedOrderId, orders]
   );
 
+  const selectedIsPff = isPffPaymentMethod(selectedOrder?.payment_method);
+  const showPaymentMap =
+    selectedIsPff && (isReceiver || isDriver);
+  const showGoodsMap =
+    !selectedIsPff || isSender || isDriver;
+
   const showMessage = useCallback((text: string, type: "success" | "error" = "success") => {
     showToast(text, type);
   }, []);
+
+  function handleHighlightRoute(
+    zoneIds: number[] | null,
+    purpose?: "payment" | "goods" | null,
+  ) {
+    setHighlightedZoneIds(zoneIds);
+    setHighlightedPurpose(zoneIds ? purpose ?? null : null);
+  }
+
+  function mapPreview(purpose?: "payment" | "goods") {
+    if (!selectedOrder || isAwaitingConnect(selectedOrder)) return null;
+    const activeHighlight =
+      purpose == null || highlightedPurpose == null
+        ? highlightedZoneIds
+        : highlightedPurpose === purpose
+          ? highlightedZoneIds
+          : null;
+    return (
+      <OrderPossibleRoutes
+        order={selectedOrder}
+        refreshSignal={costRefreshKey}
+        onMessage={showMessage}
+        hidePathList
+        purpose={purpose}
+        highlightedZoneIds={activeHighlight}
+        onClearHighlight={() => {
+          setHighlightedZoneIds(null);
+          setHighlightedPurpose(null);
+        }}
+      />
+    );
+  }
 
   function selectOrder(order: Order) {
     setSelectedOrderId(order.id);
@@ -269,22 +313,25 @@ export function RoutesPage() {
                     }}
                     refreshSignal={costRefreshKey}
                     onMessage={showMessage}
-                    onHighlightRoute={setHighlightedZoneIds}
+                    onHighlightRoute={handleHighlightRoute}
                     highlightedZoneIds={highlightedZoneIds}
                     onRouteSelectionChanged={() =>
                       setAnnounceRefreshKey((k) => k + 1)
                     }
+                    paymentMapSlot={
+                      selectedIsPff && showPaymentMap
+                        ? mapPreview("payment")
+                        : undefined
+                    }
+                    goodsMapSlot={
+                      selectedIsPff && showGoodsMap
+                        ? mapPreview("goods")
+                        : undefined
+                    }
                     mapSlot={
-                      !isAwaitingConnect(selectedOrder) ? (
-                        <OrderPossibleRoutes
-                          order={selectedOrder}
-                          refreshSignal={costRefreshKey}
-                          onMessage={showMessage}
-                          hidePathList
-                          highlightedZoneIds={highlightedZoneIds}
-                          onClearHighlight={() => setHighlightedZoneIds(null)}
-                        />
-                      ) : null
+                      !selectedIsPff && showGoodsMap
+                        ? mapPreview()
+                        : undefined
                     }
                   />
                 </>

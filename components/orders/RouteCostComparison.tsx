@@ -105,7 +105,10 @@ interface Props {
   refreshSignal?: number;
   onMessage?: (text: string, type?: "success" | "error") => void;
   /** Notify parent so the map can trace this route's zone chain. */
-  onHighlightRoute?: (zoneIds: number[] | null) => void;
+  onHighlightRoute?: (
+    zoneIds: number[] | null,
+    purpose?: "payment" | "goods" | null,
+  ) => void;
   /** Currently highlighted zone chain (from parent / map sync). */
   highlightedZoneIds?: number[] | null;
   /**
@@ -113,6 +116,10 @@ interface Props {
    * directly under it (map + routes stay close on the Routes page).
    */
   mapSlot?: ReactNode;
+  /** PFF: payment map placed directly above the payment routes list. */
+  paymentMapSlot?: ReactNode;
+  /** PFF: goods map placed directly above the goods routes list. */
+  goodsMapSlot?: ReactNode;
   /** Fired after a route is selected so the announce card can refresh quickly. */
   onRouteSelectionChanged?: () => void;
 }
@@ -126,6 +133,8 @@ export function RouteCostComparison({
   onHighlightRoute,
   highlightedZoneIds = null,
   mapSlot,
+  paymentMapSlot,
+  goodsMapSlot,
   onRouteSelectionChanged,
 }: Props) {
   const { user } = useAuth();
@@ -181,16 +190,17 @@ export function RouteCostComparison({
   );
 
   const highlightRoute = useCallback(
-    (route: RouteCostSummary) => {
+    (route: RouteCostSummary, purpose?: "payment" | "goods" | null) => {
       const ids = route.zone_ids ?? null;
+      const purposeHint = purpose ?? route.route_purpose ?? null;
       if (!ids || ids.length === 0) {
-        onHighlightRoute?.(null);
+        onHighlightRoute?.(null, null);
         return;
       }
       if (zoneIdsEqual(ids, highlightedZoneIds)) {
-        onHighlightRoute?.(null);
+        onHighlightRoute?.(null, null);
       } else {
-        onHighlightRoute?.(ids);
+        onHighlightRoute?.(ids, purposeHint);
       }
     },
     [highlightedZoneIds, onHighlightRoute],
@@ -442,6 +452,7 @@ export function RouteCostComparison({
     canSelect,
     selectLabel,
     showReviewBadge = true,
+    purpose = null,
   }: {
     title: string;
     routes: RouteCostSummary[];
@@ -450,6 +461,7 @@ export function RouteCostComparison({
     canSelect: boolean;
     selectLabel: string;
     showReviewBadge?: boolean;
+    purpose?: "payment" | "goods" | null;
   }) {
     const sorted = sortRoutes(routes, sortKey);
     return (
@@ -496,9 +508,9 @@ export function RouteCostComparison({
               selecting={selectingRouteId === route.route_id}
               onSelectRoute={() => handleSelectRoute(route.route_id)}
               selectRouteLabel={selectLabel}
-              onHighlight={() => highlightRoute(route)}
+              onHighlight={() => highlightRoute(route, purpose)}
               onShowBreakdown={() => {
-                onHighlightRoute?.(route.zone_ids ?? null);
+                onHighlightRoute?.(route.zone_ids ?? null, purpose);
                 setBreakdownRouteId(route.route_id);
               }}
               userId={user?.id}
@@ -510,10 +522,20 @@ export function RouteCostComparison({
     );
   }
 
+  const useSplitPffMaps =
+    isPff && (paymentMapSlot != null || goodsMapSlot != null);
+
   if (loading) {
     return (
       <div className="space-y-2">
-        {mapSlot}
+        {useSplitPffMaps ? (
+          <>
+            {paymentMapSlot}
+            {goodsMapSlot}
+          </>
+        ) : (
+          mapSlot
+        )}
         <Card>
           <CardContent className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -573,50 +595,61 @@ export function RouteCostComparison({
       </div>
     ) : null;
 
-  const routeList = (
+  const paymentSection = showPaymentRoute && data ? (
     <>
-      {routeTimeControl}
-      {statusNotices}
-      {isPff && data ? (
-        <>
-          {showPaymentRoute && renderRouteSection({
-            title: `${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`,
-            routes: data.payment_routes ?? [],
-            selection: routeSelections?.payment ?? null,
-            emptyMessage:
-              data.is_payment_route_complete === false
-                ? "No complete payment path at the selected time."
-                : "No payment routes found. Recalculate after zones are connected.",
-            canSelect: canSelectPaymentRoute && pffCanChangeSelection,
-            selectLabel: "Select payment route",
-            showReviewBadge: Boolean(paymentConfirmation?.transporters_notified),
-          })}
-          {showGoodsRoute && renderRouteSection({
-            title: `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}`,
-            routes: data.goods_routes ?? [],
-            selection: routeSelections?.goods ?? null,
-            emptyMessage:
-              data.is_goods_route_complete === false
-                ? "No complete goods path at the selected time."
-                : "No goods routes found. Recalculate after zones are connected.",
-            canSelect: canSelectGoodsRoute && pffCanChangeSelection,
-            selectLabel: "Select goods route",
-            showReviewBadge: Boolean(goodsConfirmation?.transporters_notified),
-          })}
-          {showPaymentRoute && paymentConfirmation?.transporters_notified && routeSelections?.payment && !isDriver && (
-            <div className="space-y-3 pt-2 border-t border-border">
-              <p className="text-sm font-medium">Payment route confirmation</p>
-              <RouteConfirmationStatusPanel confirmation={paymentConfirmation} />
-            </div>
-          )}
-          {showGoodsRoute && goodsConfirmation?.transporters_notified && routeSelections?.goods && !isDriver && (
-            <div className="space-y-3 pt-2 border-t border-border">
-              <p className="text-sm font-medium">Goods route confirmation</p>
-              <RouteConfirmationStatusPanel confirmation={goodsConfirmation} />
-            </div>
-          )}
-        </>
-      ) : !data || data.routes.length === 0 ? (
+      {renderRouteSection({
+        title: `${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`,
+        routes: data.payment_routes ?? [],
+        selection: routeSelections?.payment ?? null,
+        emptyMessage:
+          data.is_payment_route_complete === false
+            ? "No complete payment path at the selected time."
+            : "No payment routes found. Recalculate after zones are connected.",
+        canSelect: canSelectPaymentRoute && pffCanChangeSelection,
+        selectLabel: "Select payment route",
+        showReviewBadge: Boolean(paymentConfirmation?.transporters_notified),
+        purpose: "payment",
+      })}
+      {paymentConfirmation?.transporters_notified &&
+        routeSelections?.payment &&
+        !isDriver && (
+          <div className="space-y-3 pt-2 border-t border-border">
+            <p className="text-sm font-medium">Payment route confirmation</p>
+            <RouteConfirmationStatusPanel confirmation={paymentConfirmation} />
+          </div>
+        )}
+    </>
+  ) : null;
+
+  const goodsSection = showGoodsRoute && data ? (
+    <>
+      {renderRouteSection({
+        title: `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}`,
+        routes: data.goods_routes ?? [],
+        selection: routeSelections?.goods ?? null,
+        emptyMessage:
+          data.is_goods_route_complete === false
+            ? "No complete goods path at the selected time."
+            : "No goods routes found. Recalculate after zones are connected.",
+        canSelect: canSelectGoodsRoute && pffCanChangeSelection,
+        selectLabel: "Select goods route",
+        showReviewBadge: Boolean(goodsConfirmation?.transporters_notified),
+        purpose: "goods",
+      })}
+      {goodsConfirmation?.transporters_notified &&
+        routeSelections?.goods &&
+        !isDriver && (
+          <div className="space-y-3 pt-2 border-t border-border">
+            <p className="text-sm font-medium">Goods route confirmation</p>
+            <RouteConfirmationStatusPanel confirmation={goodsConfirmation} />
+          </div>
+        )}
+    </>
+  ) : null;
+
+  const standardRouteList = (
+    <>
+      {!data || data.routes.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
           {data?.route_locked
             ? "No saved route data found for this order."
@@ -659,9 +692,9 @@ export function RouteCostComparison({
               selecting={selectingRouteId === route.route_id}
               onSelectRoute={() => handleSelectRoute(route.route_id)}
               selectRouteLabel="Select route"
-              onHighlight={() => highlightRoute(route)}
+              onHighlight={() => highlightRoute(route, null)}
               onShowBreakdown={() => {
-                onHighlightRoute?.(route.zone_ids ?? null);
+                onHighlightRoute?.(route.zone_ids ?? null, null);
                 setBreakdownRouteId(route.route_id);
               }}
               userId={user?.id}
@@ -687,57 +720,54 @@ export function RouteCostComparison({
     </>
   );
 
-  const costCard = (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4" />
-            {routeIncomplete
-              ? "Route status"
-              : isDriver
-                ? "Your Zone Costs"
-                : "Route Cost Comparison"}
-            {refreshing && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            )}
-          </CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">
-            {routeIncomplete
-              ? "This order has no complete pickup-to-drop-off path right now, so route costs are not calculated."
-              : isDriver
-              ? "Costs for your zone segments only. Other transporters on the same route are not shown."
-              : `Pricing engine: (base × package factor) + traveling + waiting + booking fee${
-                  data
-                    ? ` (${formatBookingFeePercent(data.booking_fee_rate)})`
-                    : ""
-                }. Each route segment uses its zone's pricing mode (system or own price). Land distance uses ${
-                  pricingConfig?.land_distance_provider === "google"
-                    ? "Google road routing"
-                    : "H3 estimate"
-                }. Air segments always require a requested/manual cost.`}
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={handleRecalculate}
-          disabled={recalculating || !canRecalculate || data?.route_locked}
-          className={
-            canRecalculate && !data?.route_locked ? undefined : "hidden"
-          }
-        >
-          {recalculating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
+  const sharedHeader = (
+    <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <div>
+        <CardTitle className="flex items-center gap-2">
+          <DollarSign className="h-4 w-4" />
+          {routeIncomplete
+            ? "Route status"
+            : isDriver
+              ? "Your Zone Costs"
+              : "Route Cost Comparison"}
+          {refreshing && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
           )}
-          {routeIncomplete ? "Check route time" : "Recalculate Costs"}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">{routeList}</CardContent>
-    </Card>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          {routeIncomplete
+            ? "This order has no complete pickup-to-drop-off path right now, so route costs are not calculated."
+            : isDriver
+            ? "Costs for your zone segments only. Other transporters on the same route are not shown."
+            : `Pricing engine: (base × package factor) + traveling + waiting + booking fee${
+                data
+                  ? ` (${formatBookingFeePercent(data.booking_fee_rate)})`
+                  : ""
+              }. Each route segment uses its zone's pricing mode (system or own price). Land distance uses ${
+                pricingConfig?.land_distance_provider === "google"
+                  ? "Google road routing"
+                  : "H3 estimate"
+              }. Air segments always require a requested/manual cost.`}
+        </p>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={handleRecalculate}
+        disabled={recalculating || !canRecalculate || data?.route_locked}
+        className={
+          canRecalculate && !data?.route_locked ? undefined : "hidden"
+        }
+      >
+        {recalculating ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <RefreshCw className="h-4 w-4" />
+        )}
+        {routeIncomplete ? "Check route time" : "Recalculate Costs"}
+      </Button>
+    </CardHeader>
   );
 
   const breakdownModal = (
@@ -774,6 +804,79 @@ export function RouteCostComparison({
       userId={user?.id}
       userRole={user?.role}
     />
+  );
+
+  // PFF with split maps: payment map → payment list, goods map → goods list.
+  if (useSplitPffMaps) {
+    return (
+      <div className="space-y-2">
+        <Card>
+          {sharedHeader}
+          <CardContent className="space-y-4">
+            {routeTimeControl}
+            {statusNotices}
+          </CardContent>
+        </Card>
+
+        {showPaymentRoute && (
+          <div className="space-y-2">
+            {paymentMapSlot}
+            <Card>
+              <CardContent className="space-y-4 pt-5">
+                {data ? (
+                  paymentSection
+                ) : (
+                  <p className="text-sm text-muted-foreground py-2">
+                    No payment routes found.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {showGoodsRoute && (
+          <div className="space-y-2">
+            {goodsMapSlot}
+            <Card>
+              <CardContent className="space-y-4 pt-5">
+                {data ? (
+                  goodsSection
+                ) : (
+                  <p className="text-sm text-muted-foreground py-2">
+                    No goods routes found.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {breakdownModal}
+      </div>
+    );
+  }
+
+  const routeList = (
+    <>
+      {routeTimeControl}
+      {statusNotices}
+      {isPff && data ? (
+        <>
+          {paymentSection}
+          {goodsSection}
+        </>
+      ) : (
+        standardRouteList
+      )}
+    </>
+  );
+
+  const costCard = (
+    <Card>
+      {sharedHeader}
+      <CardContent className="space-y-4">{routeList}</CardContent>
+    </Card>
   );
 
   if (mapSlot) {

@@ -23,6 +23,11 @@ interface Props {
   /** Zone chain to highlight on the map, driven by the cost route list. */
   highlightedZoneIds?: number[] | null;
   onClearHighlight?: () => void;
+  /**
+   * When set, only render that purpose's map (used to place each list under
+   * its matching map on the Routes page).
+   */
+  purpose?: "payment" | "goods";
 }
 
 /**
@@ -39,6 +44,7 @@ export function OrderPossibleRoutes({
   hidePathList = false,
   highlightedZoneIds = null,
   onClearHighlight,
+  purpose,
 }: Props) {
   const { user } = useAuth();
   const [goodsPreview, setGoodsPreview] = useState<OrderDraftPreview | null>(null);
@@ -55,9 +61,12 @@ export function OrderPossibleRoutes({
   // Receiver owns the payment route; sender owns the goods route. Admins and
   // drivers may need both.
   const showPaymentPreview =
-    isPff && (role === "receiver" || role === "admin" || role === "driver");
+    (purpose == null || purpose === "payment") &&
+    isPff &&
+    (role === "receiver" || role === "admin" || role === "driver");
   const showGoodsPreview =
-    !isPff || role === "sender" || role === "admin" || role === "driver";
+    (purpose == null || purpose === "goods") &&
+    (!isPff || role === "sender" || role === "admin" || role === "driver");
 
   const hasCoords =
     order.sender_lat != null &&
@@ -120,12 +129,16 @@ export function OrderPossibleRoutes({
   useEffect(() => {
     hasPreviewRef.current = false;
     void load(false);
-  }, [order.id, load]);
+  }, [order.id, load, purpose]);
 
   useEffect(() => {
     if (refreshSignal === 0 || !hasPreviewRef.current) return;
     void load(true);
   }, [refreshSignal, order.id, load]);
+
+  if (!showPaymentPreview && !showGoodsPreview) {
+    return null;
+  }
 
   if (error && !goodsPreview && !paymentPreview) {
     return (
@@ -141,34 +154,41 @@ export function OrderPossibleRoutes({
     );
   }
 
+  const paymentMap = isPff && showPaymentPreview && (
+    <OrderDraftZonePreview
+      preview={paymentPreview}
+      loading={initialLoading}
+      refreshing={refreshing}
+      error={null}
+      heading={`${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`}
+      hidePathList={hidePathList}
+      highlightedZoneIds={highlightedZoneIds}
+      onClearHighlight={onClearHighlight}
+    />
+  );
+
+  const goodsMap = showGoodsPreview && (
+    <OrderDraftZonePreview
+      preview={goodsPreview}
+      loading={initialLoading}
+      refreshing={refreshing}
+      error={isPff ? null : error}
+      heading={
+        isPff ? `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}` : undefined
+      }
+      hidePathList={hidePathList}
+      highlightedZoneIds={highlightedZoneIds}
+      onClearHighlight={onClearHighlight}
+    />
+  );
+
+  if (purpose === "payment") return <>{paymentMap}</>;
+  if (purpose === "goods") return <>{goodsMap}</>;
+
   return (
     <div className="space-y-4">
-      {isPff && showPaymentPreview && (
-        <OrderDraftZonePreview
-          preview={paymentPreview}
-          loading={initialLoading}
-          refreshing={refreshing}
-          error={null}
-          heading={`${PFF_PAYMENT_ROUTE_TITLE} · ${PFF_PAYMENT_ROUTE_DIRECTION}`}
-          hidePathList={hidePathList}
-          highlightedZoneIds={highlightedZoneIds}
-          onClearHighlight={onClearHighlight}
-        />
-      )}
-      {showGoodsPreview && (
-        <OrderDraftZonePreview
-          preview={goodsPreview}
-          loading={initialLoading}
-          refreshing={refreshing}
-          error={isPff ? null : error}
-          heading={
-            isPff ? `${PFF_GOODS_ROUTE_TITLE} · ${PFF_GOODS_ROUTE_DIRECTION}` : undefined
-          }
-          hidePathList={hidePathList}
-          highlightedZoneIds={highlightedZoneIds}
-          onClearHighlight={onClearHighlight}
-        />
-      )}
+      {paymentMap}
+      {goodsMap}
     </div>
   );
 }
