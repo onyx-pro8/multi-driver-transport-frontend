@@ -488,12 +488,12 @@ export function OrderDraftZonePreview({
         <div className="grid grid-cols-2 gap-3 text-xs">
           <Metric
             label={`Pickup (res ${preview.preview_resolution})`}
-            value={formatCellCoords(preview.source.h3)}
+            value={<CellCoordsLink cell={preview.source.h3} />}
             mono
           />
           <Metric
             label={`Drop-off (res ${preview.preview_resolution})`}
-            value={formatCellCoords(preview.destination.h3)}
+            value={<CellCoordsLink cell={preview.destination.h3} />}
             mono
           />
           <Metric label="Pickup zones" value={preview.pickup_zones.length} />
@@ -892,7 +892,7 @@ function Metric({
   mono,
 }: {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   mono?: boolean;
 }) {
   return (
@@ -900,6 +900,24 @@ function Metric({
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={cn("text-sm font-medium truncate", mono && "font-mono text-xs")}>{value}</div>
     </div>
+  );
+}
+
+/** Cell-center coordinates as a link that opens the location on Google Maps. */
+function CellCoordsLink({ cell }: { cell: string | null | undefined }) {
+  const center = cell ? cellCenter(cell) : null;
+  const text = formatCellCoords(cell);
+  if (!center) return <>{text}</>;
+  return (
+    <a
+      href={`https://www.google.com/maps?q=${center.lat},${center.lng}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary underline-offset-2 hover:underline"
+      title="Open in Google Maps"
+    >
+      {text}
+    </a>
   );
 }
 

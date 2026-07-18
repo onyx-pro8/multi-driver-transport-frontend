@@ -199,6 +199,9 @@ body {
 }
 
 .leaflet-container {
+  /* Contain Leaflet panes (z 200–1000) so they can't paint over page modals. */
+  isolation: isolate;
+  z-index: 0;
   font-family: inherit;
   background: var(--muted);
   border-radius: inherit;

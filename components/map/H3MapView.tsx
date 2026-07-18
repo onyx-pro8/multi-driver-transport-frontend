@@ -29,6 +29,7 @@ import {
 } from "@/lib/transportMode";
 import type { ConvertH3Response, DriverZone, HubTerminal } from "@/types";
 import { HandoffMapTooltip } from "@/components/map/HandoffMapTooltip";
+import { LandRouteChainPolyline } from "@/components/map/LandRoutePolyline";
 import { SeaRoutePolyline } from "@/components/map/SeaRoutePolyline";
 import { TransferCellMapTooltip } from "@/components/map/TransferCellMapTooltip";
 import { ZONE_MAP_TOOLTIP_CLASS, ZoneMapTooltip } from "@/components/map/ZoneMapTooltip";
@@ -1557,9 +1558,9 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
               <>
                 {routeSegments.map((seg, i) =>
                   seg.length >= 2 ? (
-                    <Polyline
+                    <LandRouteChainPolyline
                       key={`route-seg-${i}`}
-                      positions={seg.map((p) => [p.lat, p.lng] as [number, number])}
+                      points={seg}
                       pathOptions={{
                         color: "#2563eb",
                         weight: 3,
@@ -1598,6 +1599,17 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
                       >
                         {accentTip}
                       </SeaRoutePolyline>
+                    );
+                  }
+                  if (mode === "land") {
+                    return (
+                      <LandRouteChainPolyline
+                        key={`accent-route-seg-${i}`}
+                        points={leg.points}
+                        pathOptions={accentPath}
+                      >
+                        {accentTip}
+                      </LandRouteChainPolyline>
                     );
                   }
                   const meta = TRANSPORT_MODE_META[mode];

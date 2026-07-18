@@ -726,14 +726,79 @@ function SegmentCard({
               </p>
             )}
           </div>
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-xs font-medium capitalize",
-              SEGMENT_STATUS_BADGE[item.status]
+          <div className="flex flex-col items-end gap-2">
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-medium capitalize",
+                SEGMENT_STATUS_BADGE[item.status]
+              )}
+            >
+              {item.status}
+            </span>
+            {item.status === "pending" && (
+              <div className="flex flex-wrap justify-end gap-2 rounded-xl border-2 border-primary/40 bg-primary/10 p-2 shadow-sm">
+                <Button
+                  type="button"
+                  className="min-w-[6.5rem] shadow-md"
+                  onClick={() => onAccept(item.segment_id)}
+                  disabled={actingId === item.segment_id}
+                >
+                  {actingId === item.segment_id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  Accept
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-w-[6.5rem] border-danger/40 bg-background text-danger hover:bg-red-50 dark:hover:bg-red-950/30"
+                  onClick={() => onToggleReject(item.segment_id)}
+                  disabled={actingId === item.segment_id}
+                >
+                  <X className="h-4 w-4" />
+                  Reject
+                </Button>
+              </div>
             )}
-          >
-            {item.status}
-          </span>
+            {item.status === "accepted" &&
+              item.route_selection_status === "confirmed" &&
+              (showPickedUp || showInTransit) && (
+                <div className="flex flex-wrap justify-end gap-2 rounded-xl border-2 border-indigo-500/40 bg-indigo-500/10 p-2 shadow-sm">
+                  {showPickedUp && (
+                    <Button
+                      type="button"
+                      className="min-w-[7rem] bg-blue-600 text-white shadow-md hover:bg-blue-600/90"
+                      disabled={legUpdating}
+                      onClick={() => onSegmentLegAction(item.segment_id, "picked_up")}
+                    >
+                      {legUpdating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Package className="h-4 w-4" />
+                      )}
+                      Picked up
+                    </Button>
+                  )}
+                  {showInTransit && (
+                    <Button
+                      type="button"
+                      className="min-w-[7rem] bg-indigo-600 text-white shadow-md hover:bg-indigo-600/90"
+                      disabled={legUpdating}
+                      onClick={() => onSegmentLegAction(item.segment_id, "in_transit")}
+                    >
+                      {legUpdating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Clock className="h-4 w-4" />
+                      )}
+                      In transit
+                    </Button>
+                  )}
+                </div>
+              )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -743,67 +808,19 @@ function SegmentCard({
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                "rounded-full px-2 py-0.5 text-xs font-medium",
+                "w-fit rounded-full px-2 py-0.5 text-xs font-medium",
                 LEG_STATUS_BADGE[item.leg_status] ?? LEG_STATUS_BADGE.not_started
               )}
             >
               Leg: {SEGMENT_LEG_LABELS[item.leg_status]}
             </span>
-            {showPickedUp && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={legUpdating}
-                onClick={() => onSegmentLegAction(item.segment_id, "picked_up")}
-              >
-                {legUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Picked up"}
-              </Button>
-            )}
-            {showInTransit && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={legUpdating}
-                onClick={() => onSegmentLegAction(item.segment_id, "in_transit")}
-              >
-                {legUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : "In transit"}
-              </Button>
-            )}
             {blockedReason ? (
               <p className="text-xs text-amber-700 dark:text-amber-300">{blockedReason}</p>
             ) : null}
           </div>
         )}
 
-        {item.status === "pending" ? (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => onAccept(item.segment_id)}
-              disabled={actingId === item.segment_id}
-            >
-              {actingId === item.segment_id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Check className="h-4 w-4 mr-1" />
-              )}
-              Accept
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => onToggleReject(item.segment_id)}
-              disabled={actingId === item.segment_id}
-            >
-              <X className="h-4 w-4 mr-1" />
-              Reject
-            </Button>
-          </div>
-        ) : item.rejection_reason ? (
+        {item.status !== "pending" && item.rejection_reason ? (
           <p className="text-xs text-red-600 dark:text-red-400">
             Rejection reason: {item.rejection_reason}
           </p>
@@ -829,17 +846,18 @@ function SegmentCard({
         {showMap && <ConfirmationSegmentMap item={item} />}
 
         {rejectingId === item.segment_id && (
-          <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex flex-wrap items-end justify-end gap-2 rounded-xl border border-danger/30 bg-red-50/80 p-3 dark:bg-red-950/20">
             <Input
               placeholder="Reason for rejection (optional)"
               value={rejectReason}
               onChange={(e) => onRejectReasonChange(e.target.value)}
-              className="max-w-sm"
+              className="max-w-sm bg-background"
             />
             <Button
               type="button"
-              size="sm"
+              size="lg"
               variant="danger"
+              className="min-w-[8rem] border border-danger/40 bg-danger text-white hover:opacity-90"
               onClick={() => onReject(item.segment_id)}
               disabled={actingId === item.segment_id}
             >
