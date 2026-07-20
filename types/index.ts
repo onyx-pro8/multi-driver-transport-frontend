@@ -1064,6 +1064,8 @@ export interface TransporterConfirmationItem {
   destination_address: string;
   sent_at: string;
   route_selection_status: RouteSelectionStatus | null;
+  /** True when this confirmation belongs to the order's currently selected route. */
+  is_current_selection: boolean;
   order_tracking_status: TrackingStatus;
   pickup_ready_at: string | null;
   goods_ready_at?: string | null;

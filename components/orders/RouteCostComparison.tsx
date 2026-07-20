@@ -160,7 +160,7 @@ export function RouteCostComparison({
   const showGoodsRoute = isSender || isDriver;
   const canSelectRoute =
     user?.role === "admin" ||
-    (!isPff && user?.role === "receiver");
+    (!isPff && isSender);
   const [scheduleInput, setScheduleInput] = useState("");
   const [data, setData] = useState<OrderRouteCostComparison | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<RouteSelection | null>(null);
@@ -551,6 +551,32 @@ export function RouteCostComparison({
       {(data?.schedule_inactive_zones?.length ?? 0) > 0 && (
         <ScheduleInactiveNotice zones={data?.schedule_inactive_zones ?? []} />
       )}
+      {!isPff && selectedRoute?.status === "rejected" && !data?.route_locked && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
+          <p className="font-medium">Selected route was rejected</p>
+          <p className="text-xs mt-1 opacity-90">
+            A transporter rejected this route. Choose a different route below to send new
+            confirmation requests. The previous route stays in transporter history only.
+          </p>
+        </div>
+      )}
+      {isPff &&
+        !data?.route_locked &&
+        ((routeSelections?.payment?.status === "rejected" && canSelectPaymentRoute) ||
+          (routeSelections?.goods?.status === "rejected" && canSelectGoodsRoute)) && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
+            <p className="font-medium">A selected route was rejected</p>
+            <p className="text-xs mt-1 opacity-90">
+              {routeSelections?.payment?.status === "rejected" && canSelectPaymentRoute
+                ? "Reselect the payment route. "
+                : ""}
+              {routeSelections?.goods?.status === "rejected" && canSelectGoodsRoute
+                ? "Reselect the goods route. "
+                : ""}
+              New confirmation requests are sent after the replacement route is chosen.
+            </p>
+          </div>
+        )}
       {data?.route_locked && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
           {data.route_lock_reason === "confirmation_pending"
@@ -1026,7 +1052,7 @@ function RouteCard({
         </div>
         <div className="text-right space-y-2" onClick={(e) => e.stopPropagation()}>
           <p className="text-lg font-semibold">{costLabel}</p>
-          {canSelectRoute && !isSelected && (
+          {canSelectRoute && (!isSelected || selectionStatus === "rejected") && (
             <Button
               type="button"
               size="sm"
@@ -1035,6 +1061,8 @@ function RouteCard({
             >
               {selecting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
+              ) : selectionStatus === "rejected" && isSelected ? (
+                "Reselect this route"
               ) : (
                 selectRouteLabel
               )}

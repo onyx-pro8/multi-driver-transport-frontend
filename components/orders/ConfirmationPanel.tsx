@@ -32,6 +32,7 @@ import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/Route
 import { OrderProgressBar } from "@/components/orders/SegmentTimeline";
 import { canTrackOrder, TrackOrderLink } from "@/components/orders/TrackOrderLink";
 import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
+import { RejectSegmentDialog } from "@/components/orders/RejectSegmentDialog";
 import { PACKAGE_TYPE_LABELS } from "@/lib/pricing";
 import {
   defaultPaymentPackageEntry,
@@ -208,8 +209,22 @@ const SEGMENT_STATUS_BADGE: Record<string, string> = {
   rejected: "bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20",
 };
 
+/** Current selection that still needs action or is in progress — not rejected/superseded. */
+export function isActiveTransporterConfirmation(
+  item: TransporterConfirmationItem,
+): boolean {
+  if (item.status === "rejected") return false;
+  if (!item.is_current_selection) return false;
+  if (item.route_selection_status == null || item.route_selection_status === "rejected") {
+    return false;
+  }
+  return true;
+}
+
 interface OrderGroup {
+  key: string;
   order_id: number;
+  route_id: number | null;
   /** Distinct route labels in this order (e.g. "Payment route 1", "Goods route 1"). */
   route_labels: string[];
   sender_address: string;
@@ -220,6 +235,65 @@ interface OrderGroup {
   rejectedCount: number;
   schedule_inactive_zones: TransporterConfirmationItem["schedule_inactive_zones"];
   route_is_complete: boolean;
+  /** False for rejected / superseded history cards (read-only). */
+  actionable: boolean;
+}
+
+function buildGroups(
+  items: TransporterConfirmationItem[],
+  options: { actionable: boolean; groupByRoute: boolean },
+): OrderGroup[] {
+  const map = new Map<string, OrderGroup>();
+  const inactiveZoneKeys = new Map<string, Set<number>>();
+
+  for (const item of items) {
+    const key = options.groupByRoute
+      ? `history-${item.order_id}-${item.route_id}`
+      : `active-${item.order_id}`;
+    let group = map.get(key);
+    if (!group) {
+      group = {
+        key,
+        order_id: item.order_id,
+        route_id: options.groupByRoute ? item.route_id : null,
+        route_labels: [],
+        sender_address: item.sender_address,
+        destination_address: item.destination_address,
+        items: [],
+        pendingCount: 0,
+        acceptedCount: 0,
+        rejectedCount: 0,
+        schedule_inactive_zones: [],
+        route_is_complete: true,
+        actionable: options.actionable,
+      };
+      map.set(key, group);
+      inactiveZoneKeys.set(key, new Set());
+    }
+    group.items.push(item);
+    if (!group.route_labels.includes(item.route_label)) {
+      group.route_labels.push(item.route_label);
+    }
+    if (item.status === "pending") group.pendingCount += 1;
+    else if (item.status === "accepted") group.acceptedCount += 1;
+    else if (item.status === "rejected") group.rejectedCount += 1;
+    if (item.route_is_complete === false) group.route_is_complete = false;
+    const seen = inactiveZoneKeys.get(key)!;
+    for (const zone of item.schedule_inactive_zones ?? []) {
+      if (!seen.has(zone.zone_id)) {
+        seen.add(zone.zone_id);
+        (group.schedule_inactive_zones ??= []).push(zone);
+      }
+    }
+  }
+
+  const groups = Array.from(map.values());
+  groups.forEach((group) => {
+    group.route_labels.sort((a, b) => a.localeCompare(b));
+  });
+  return groups.sort(
+    (a, b) => b.pendingCount - a.pendingCount || b.order_id - a.order_id,
+  );
 }
 
 /** Order payment/goods legs before standard segments, then by segment index. */
@@ -248,68 +322,31 @@ interface ConfirmationPanelProps {
 }
 
 export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: ConfirmationPanelProps) {
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
   const [actingId, setActingId] = useState<number | null>(null);
   const [legUpdatingId, setLegUpdatingId] = useState<number | null>(null);
   const [manualInputs, setManualInputs] = useState<Record<number, string>>({});
   const [savingCostId, setSavingCostId] = useState<number | null>(null);
 
-  // Group by order so a PFF order's payment and goods legs live under a single
-  // shipment card instead of two separate route cards.
-  const orderGroups = useMemo(() => {
-    const map = new Map<number, OrderGroup>();
-    const inactiveZoneKeys = new Map<number, Set<number>>();
-    for (const item of items) {
-      let group = map.get(item.order_id);
-      if (!group) {
-        group = {
-          order_id: item.order_id,
-          route_labels: [],
-          sender_address: item.sender_address,
-          destination_address: item.destination_address,
-          items: [],
-          pendingCount: 0,
-          acceptedCount: 0,
-          rejectedCount: 0,
-          schedule_inactive_zones: [],
-          route_is_complete: true,
-        };
-        map.set(item.order_id, group);
-        inactiveZoneKeys.set(item.order_id, new Set());
-      }
-      group.items.push(item);
-      if (!group.route_labels.includes(item.route_label)) {
-        group.route_labels.push(item.route_label);
-      }
-      if (item.status === "pending") group.pendingCount += 1;
-      else if (item.status === "accepted") group.acceptedCount += 1;
-      else if (item.status === "rejected") group.rejectedCount += 1;
-      if (item.route_is_complete === false) group.route_is_complete = false;
-      const seen = inactiveZoneKeys.get(item.order_id)!;
-      for (const zone of item.schedule_inactive_zones ?? []) {
-        if (!seen.has(zone.zone_id)) {
-          seen.add(zone.zone_id);
-          (group.schedule_inactive_zones ??= []).push(zone);
-        }
-      }
-    }
-    const groups = Array.from(map.values());
-    groups.forEach((group) => {
-      group.route_labels.sort((a, b) => a.localeCompare(b));
-    });
-    return groups.sort(
-      (a, b) => b.pendingCount - a.pendingCount || b.order_id - a.order_id
-    );
+  const { activeGroups, historyGroups } = useMemo(() => {
+    const activeItems = items.filter(isActiveTransporterConfirmation);
+    const historyItems = items.filter((item) => !isActiveTransporterConfirmation(item));
+    return {
+      activeGroups: buildGroups(activeItems, { actionable: true, groupByRoute: false }),
+      historyGroups: buildGroups(historyItems, { actionable: false, groupByRoute: true }),
+    };
   }, [items]);
 
   const selectedGroup = useMemo(
-    () => orderGroups.find((g) => g.order_id === selectedOrderId) ?? null,
-    [orderGroups, selectedOrderId]
+    () =>
+      [...activeGroups, ...historyGroups].find((g) => g.key === selectedKey) ?? null,
+    [activeGroups, historyGroups, selectedKey],
   );
 
-  const totalPending = items.filter((i) => i.status === "pending").length;
+  const totalPending = items.filter(
+    (i) => isActiveTransporterConfirmation(i) && i.status === "pending",
+  ).length;
 
   async function handleManualSave(item: TransporterConfirmationItem) {
     const raw =
@@ -346,20 +383,20 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
     }
   }
 
-  async function handleReject(segmentId: number) {
+  async function handleReject(segmentId: number, reason: string) {
     setActingId(segmentId);
     try {
-      await rejectSegment(segmentId, rejectReason);
+      await rejectSegment(segmentId, reason);
       onPatchItem?.(segmentId, {
         status: "rejected",
-        rejection_reason: rejectReason.trim() || null,
+        rejection_reason: reason.trim() || null,
       });
       onMessage?.("Segment rejected.");
       setRejectingId(null);
-      setRejectReason("");
       onUpdated?.();
     } catch (err) {
       onMessage?.(err instanceof Error ? err.message : "Failed to reject", "error");
+      throw err;
     } finally {
       setActingId(null);
     }
@@ -401,6 +438,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
     const hasRouteAvailabilityIssue =
       !selectedGroup.route_is_complete ||
       (selectedGroup.schedule_inactive_zones?.length ?? 0) > 0;
+    const rejectingItem =
+      selectedGroup.items.find((i) => i.segment_id === rejectingId) ?? null;
 
     return (
       <div className="space-y-4">
@@ -410,9 +449,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
           size="sm"
           className="-ml-2"
           onClick={() => {
-            setSelectedOrderId(null);
+            setSelectedKey(null);
             setRejectingId(null);
-            setRejectReason("");
           }}
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
@@ -425,6 +463,11 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
               <div className="min-w-0 flex-1">
                 <CardTitle className="text-base">
                   Order #{selectedGroup.order_id}
+                  {!selectedGroup.actionable && (
+                    <span className="ml-2 text-xs font-medium text-red-700 dark:text-red-300">
+                      Rejected / previous route
+                    </span>
+                  )}
                 </CardTitle>
                 {selectedGroup.route_labels.length > 0 && (
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -450,7 +493,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                     {formatShipmentPackageSummary(trackingItem)}
                   </p>
                 )}
-                {trackingItem.route_selection_status === "confirmed" && (
+                {selectedGroup.actionable &&
+                  trackingItem.route_selection_status === "confirmed" && (
                   <div className="flex flex-wrap items-center gap-2 pt-2">
                     {trackingItem.pickup_ready_at ? (
                       <TrackingStatusBadge status={trackingItem.order_tracking_status} />
@@ -460,17 +504,28 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   </div>
                 )}
               </div>
-              {canTrackOrder({
-                tracking_status: trackingItem.order_tracking_status,
-                route_selection_status: trackingItem.route_selection_status,
-              }) && (
+              {selectedGroup.actionable &&
+                canTrackOrder({
+                  tracking_status: trackingItem.order_tracking_status,
+                  route_selection_status: trackingItem.route_selection_status,
+                }) && (
                 <TrackOrderLink orderId={selectedGroup.order_id} className="shrink-0" />
               )}
             </div>
           </CardHeader>
         </Card>
 
-        {hasRouteAvailabilityIssue && (
+        {!selectedGroup.actionable && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
+            <p className="font-medium">This route is no longer active</p>
+            <p className="text-xs mt-1 opacity-90">
+              It was rejected or replaced by a new route selection. No action is needed here —
+              check Active requests if you have a new segment on this shipment.
+            </p>
+          </div>
+        )}
+
+        {selectedGroup.actionable && hasRouteAvailabilityIssue && (
           <div className="space-y-3">
             {!selectedGroup.route_is_complete && (
               <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
@@ -493,10 +548,9 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
             <SegmentCard
               key={item.confirmation_id}
               item={item}
+              readOnly={!selectedGroup.actionable}
               actingId={actingId}
               legUpdatingId={legUpdatingId}
-              rejectingId={rejectingId}
-              rejectReason={rejectReason}
               manualInput={
                 manualInputs[item.segment_id] ??
                 (item.final_cost != null ? String(item.final_cost) : "")
@@ -507,103 +561,158 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
               }
               onManualSave={() => void handleManualSave(item)}
               onAccept={handleAccept}
-              onReject={handleReject}
               onSegmentLegAction={handleSegmentLegAction}
-              onToggleReject={(segmentId) =>
-                setRejectingId(rejectingId === segmentId ? null : segmentId)
-              }
-              onRejectReasonChange={setRejectReason}
+              onOpenReject={setRejectingId}
             />
           ))}
+
+        <RejectSegmentDialog
+          open={rejectingId != null}
+          segmentLabel={
+            rejectingItem
+              ? `Segment ${rejectingItem.segment_index + 1}: ${rejectingItem.from_label} → ${rejectingItem.to_label}`
+              : "this segment"
+          }
+          submitting={actingId != null && actingId === rejectingId}
+          onClose={() => {
+            if (actingId == null) setRejectingId(null);
+          }}
+          onConfirm={async (reason) => {
+            if (rejectingId == null) return;
+            await handleReject(rejectingId, reason);
+          }}
+        />
       </div>
     );
   }
 
-  return (
-    <div className="space-y-4">
-      {totalPending > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {totalPending} segment{totalPending === 1 ? "" : "s"} awaiting your response across{" "}
-          {orderGroups.length} order{orderGroups.length === 1 ? "" : "s"}.
-        </p>
-      )}
-      {orderGroups.map((group) => {
-        const segmentCostTotal = transporterSegmentCostTotal(group.items);
-        const shipmentDistance = transporterDistanceTotalKm(group.items);
-        const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
-        const orderRouteSelectionStatus = group.items[0]?.route_selection_status ?? null;
-        const hasAvailabilityIssue =
-          !group.route_is_complete || (group.schedule_inactive_zones?.length ?? 0) > 0;
-        const packageSummary = formatShipmentPackageSummary(group.items[0]);
-        return (
-        <Card
-          key={group.order_id}
-          className="cursor-pointer transition-colors hover:bg-muted/30"
-          onClick={() => setSelectedOrderId(group.order_id)}
-        >
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium truncate">
-                  Order #{group.order_id}
-                  {group.route_labels.length > 0 && (
-                    <span className="text-muted-foreground font-normal">
-                      {" · "}
-                      {group.route_labels.join(" · ")}
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1 truncate">
-                  {group.sender_address || "—"} → {group.destination_address || "—"}
-                </p>
-                {packageSummary && (
-                  <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
-                    <Package className="h-3 w-3 shrink-0" />
-                    {packageSummary}
-                  </p>
+  function renderGroupCard(group: OrderGroup) {
+    const segmentCostTotal = transporterSegmentCostTotal(group.items);
+    const shipmentDistance = transporterDistanceTotalKm(group.items);
+    const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
+    const orderRouteSelectionStatus = group.items[0]?.route_selection_status ?? null;
+    const hasAvailabilityIssue =
+      !group.route_is_complete || (group.schedule_inactive_zones?.length ?? 0) > 0;
+    const packageSummary = formatShipmentPackageSummary(group.items[0]);
+    return (
+      <Card
+        key={group.key}
+        className={cn(
+          "cursor-pointer transition-colors hover:bg-muted/30",
+          !group.actionable && "border-red-500/25 bg-red-500/[0.03]",
+        )}
+        onClick={() => setSelectedKey(group.key)}
+      >
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium truncate">
+                Order #{group.order_id}
+                {group.route_labels.length > 0 && (
+                  <span className="text-muted-foreground font-normal">
+                    {" · "}
+                    {group.route_labels.join(" · ")}
+                  </span>
                 )}
-                <p className="text-xs text-muted-foreground mt-1">
-                  {group.items.length} segment{group.items.length === 1 ? "" : "s"}
-                  {group.pendingCount > 0 && (
-                    <span className="ml-2 text-amber-700 dark:text-amber-300 font-medium">
-                      {group.pendingCount} pending
-                    </span>
-                  )}
-                  {segmentCostTotal && (
-                    <span className="ml-2 font-medium text-foreground">
-                      · Your cost: {segmentCostTotal}
-                    </span>
-                  )}
-                  {shipmentDistance != null && (
-                    <span className="ml-2 font-medium text-foreground">
-                      · Distance: {formatDistanceKm(shipmentDistance)}
-                    </span>
-                  )}
-                  {hasAvailabilityIssue && (
-                    <span className="ml-2 inline-flex items-center gap-1 text-sky-700 dark:text-sky-300 font-medium">
-                      <Clock className="h-3 w-3" />
-                      Route availability limited
-                    </span>
-                  )}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                {group.sender_address || "—"} → {group.destination_address || "—"}
+              </p>
+              {packageSummary && (
+                <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
+                  <Package className="h-3 w-3 shrink-0" />
+                  {packageSummary}
                 </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {canTrackOrder({
+              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                {group.items.length} segment{group.items.length === 1 ? "" : "s"}
+                {group.actionable && group.pendingCount > 0 && (
+                  <span className="ml-2 text-amber-700 dark:text-amber-300 font-medium">
+                    {group.pendingCount} pending
+                  </span>
+                )}
+                {!group.actionable && (
+                  <span className="ml-2 text-red-700 dark:text-red-300 font-medium">
+                    {group.rejectedCount > 0
+                      ? `${group.rejectedCount} rejected`
+                      : "Previous route"}
+                  </span>
+                )}
+                {segmentCostTotal && (
+                  <span className="ml-2 font-medium text-foreground">
+                    · Your cost: {segmentCostTotal}
+                  </span>
+                )}
+                {shipmentDistance != null && (
+                  <span className="ml-2 font-medium text-foreground">
+                    · Distance: {formatDistanceKm(shipmentDistance)}
+                  </span>
+                )}
+                {group.actionable && hasAvailabilityIssue && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-sky-700 dark:text-sky-300 font-medium">
+                    <Clock className="h-3 w-3" />
+                    Route availability limited
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {group.actionable &&
+                canTrackOrder({
                   tracking_status: orderTrackingStatus,
                   route_selection_status: orderRouteSelectionStatus,
                 }) && (
-                  <TrackOrderLink
-                    orderId={group.order_id}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                )}
-                <ChevronRight className="h-5 w-5 text-muted-foreground" />
-              </div>
+                <TrackOrderLink
+                  orderId={group.order_id}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
-          </CardContent>
-        </Card>
-        );
-      })}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold">Active requests</h3>
+          <p className="text-xs text-muted-foreground">
+            Pending and accepted segments on the currently selected route.
+          </p>
+        </div>
+        {totalPending > 0 && (
+          <p className="text-sm text-muted-foreground">
+            {totalPending} segment{totalPending === 1 ? "" : "s"} awaiting your response across{" "}
+            {activeGroups.length} order{activeGroups.length === 1 ? "" : "s"}.
+          </p>
+        )}
+        {activeGroups.length === 0 ? (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-muted-foreground">
+              No active confirmation requests right now.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">{activeGroups.map(renderGroupCard)}</div>
+        )}
+      </section>
+
+      {historyGroups.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold">Rejected & previous routes</h3>
+            <p className="text-xs text-muted-foreground">
+              Routes you or another transporter rejected, or that were replaced after reselection.
+              These are history only — they are not mixed with active requests.
+            </p>
+          </div>
+          <div className="space-y-3">{historyGroups.map(renderGroupCard)}</div>
+        </section>
+      )}
     </div>
   );
 }
@@ -616,40 +725,34 @@ const LEG_STATUS_BADGE: Record<string, string> = {
 
 interface SegmentCardProps {
   item: TransporterConfirmationItem;
+  readOnly?: boolean;
   actingId: number | null;
   legUpdatingId: number | null;
-  rejectingId: number | null;
-  rejectReason: string;
   manualInput: string;
   savingCost: boolean;
   onManualInputChange: (value: string) => void;
   onManualSave: () => void;
   onAccept: (segmentId: number) => void;
-  onReject: (segmentId: number) => void;
   onSegmentLegAction: (segmentId: number, legStatus: "picked_up" | "in_transit") => void;
-  onToggleReject: (segmentId: number) => void;
-  onRejectReasonChange: (value: string) => void;
+  onOpenReject: (segmentId: number) => void;
 }
 
 function SegmentCard({
   item,
+  readOnly = false,
   actingId,
   legUpdatingId,
-  rejectingId,
-  rejectReason,
   manualInput,
   savingCost,
   onManualInputChange,
   onManualSave,
   onAccept,
-  onReject,
   onSegmentLegAction,
-  onToggleReject,
-  onRejectReasonChange,
+  onOpenReject,
 }: SegmentCardProps) {
   const [showMap, setShowMap] = useState(false);
-  const showPickedUp = canSegmentMarkPickedUp(item);
-  const showInTransit = canSegmentMarkInTransit(item);
+  const showPickedUp = !readOnly && canSegmentMarkPickedUp(item);
+  const showInTransit = !readOnly && canSegmentMarkInTransit(item);
   const legUpdating = legUpdatingId === item.segment_id;
   const handoffLabel = pffHandoffRoleLabel(item.handoff_role);
   const blockedReason = segmentActionBlockedReason(item);
@@ -659,6 +762,7 @@ function SegmentCard({
     <Card
       className={cn(
         segmentUnavailable && "border-sky-500/40 ring-1 ring-sky-500/20",
+        readOnly && "opacity-95",
       )}
     >
       <CardHeader className="pb-2">
@@ -686,7 +790,7 @@ function SegmentCard({
             </p>
             <SegmentShipmentDetails item={item} />
             <p className="text-sm font-medium mt-3">Your segment cost</p>
-            {item.status === "pending" ? (
+            {!readOnly && item.status === "pending" ? (
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <Input
                   className="h-8 w-28"
@@ -735,7 +839,7 @@ function SegmentCard({
             >
               {item.status}
             </span>
-            {item.status === "pending" && (
+            {!readOnly && item.status === "pending" && (
               <div className="flex flex-wrap justify-end gap-2 rounded-xl border-2 border-primary/40 bg-primary/10 p-2 shadow-sm">
                 <Button
                   type="button"
@@ -754,7 +858,7 @@ function SegmentCard({
                   type="button"
                   variant="outline"
                   className="min-w-[6.5rem] border-danger/40 bg-background text-danger hover:bg-red-50 dark:hover:bg-red-950/30"
-                  onClick={() => onToggleReject(item.segment_id)}
+                  onClick={() => onOpenReject(item.segment_id)}
                   disabled={actingId === item.segment_id}
                 >
                   <X className="h-4 w-4" />
@@ -844,27 +948,6 @@ function SegmentCard({
         </div>
 
         {showMap && <ConfirmationSegmentMap item={item} />}
-
-        {rejectingId === item.segment_id && (
-          <div className="flex flex-wrap items-end justify-end gap-2 rounded-xl border border-danger/30 bg-red-50/80 p-3 dark:bg-red-950/20">
-            <Input
-              placeholder="Reason for rejection (optional)"
-              value={rejectReason}
-              onChange={(e) => onRejectReasonChange(e.target.value)}
-              className="max-w-sm bg-background"
-            />
-            <Button
-              type="button"
-              size="lg"
-              variant="danger"
-              className="min-w-[8rem] border border-danger/40 bg-danger text-white hover:opacity-90"
-              onClick={() => onReject(item.segment_id)}
-              disabled={actingId === item.segment_id}
-            >
-              Confirm reject
-            </Button>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

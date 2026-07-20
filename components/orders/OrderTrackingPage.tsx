@@ -268,7 +268,7 @@ export function OrderTrackingPage({ orderId, audience = "default" }: Props) {
               {order.tracking_status === "REJECTED"
                 ? "This shipment was rejected and can no longer be tracked."
                 : order.route_selection_status === "rejected"
-                  ? "The selected route was rejected by a transporter. Choose another route or contact support before tracking can continue."
+                  ? "The selected route was rejected by a transporter. Open the Routes page to choose another route before tracking can continue."
                   : "This shipment is not ready for tracking yet."}
             </p>
           </CardContent>

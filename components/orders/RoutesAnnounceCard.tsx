@@ -160,7 +160,7 @@ export function RoutesAnnounceCard({
         <p className="text-sm text-muted-foreground">
           {isPff
             ? PFF_DUAL_ROUTE_INTRO
-            : "Compare estimated costs, pick a route, then transporters are notified."}
+            : "Compare estimated costs, pick the goods route, then transporters are notified."}
         </p>
       </CardHeader>
       <CardContent className="space-y-4 pt-0">

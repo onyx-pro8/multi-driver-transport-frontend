@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Route, ShieldCheck } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { ConfirmationPanel } from "@/components/orders/ConfirmationPanel";
+import { ConfirmationPanel, isActiveTransporterConfirmation } from "@/components/orders/ConfirmationPanel";
 import { TransporterOrdersPanel } from "@/components/orders/TransporterOrdersPanel";
 import { getTransporterConfirmations } from "@/lib/api";
 import { showToast } from "@/lib/toast";
@@ -94,7 +94,9 @@ export function ConfirmationsPage() {
     showToast(text, type);
   }
 
-  const pendingCount = items.filter((i) => i.status === "pending").length;
+  const pendingCount = items.filter(
+    (i) => isActiveTransporterConfirmation(i) && i.status === "pending",
+  ).length;
 
   if (initialLoading && tab === "confirmations") {
     return (

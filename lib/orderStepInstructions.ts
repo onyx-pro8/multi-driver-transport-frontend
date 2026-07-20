@@ -186,6 +186,16 @@ function isRouteFullyConfirmed(order: OrderLikeForInstructions, isPff: boolean):
   return order.route_selection_status === "confirmed";
 }
 
+function isRouteSelectionRejected(order: OrderLikeForInstructions, isPff: boolean): boolean {
+  if (isPff) {
+    const paymentRejected = order.payment_route_selection_status === "rejected";
+    const goodsRejected = order.goods_route_selection_status === "rejected";
+    // Either leg rejected means that leg must be reselected before confirmation can continue.
+    return paymentRejected || goodsRejected;
+  }
+  return order.route_selection_status === "rejected";
+}
+
 function hasAnyRouteSelected(order: OrderLikeForInstructions, isPff: boolean): boolean {
   if (isPff) {
     return Boolean(
@@ -214,6 +224,12 @@ function deriveCurrentStepId(order: OrderLikeForInstructions, isPff: boolean): W
   if (routeConfirmed) {
     if (!order.pickup_ready_at) return "confirmed";
     return "pick_ready";
+  }
+
+  // After a transporter rejects a route, send sender/receiver back to route selection
+  // instead of leaving them stuck on transporter confirmation.
+  if (isRouteSelectionRejected(order, isPff)) {
+    return "select_route";
   }
 
   if (hasAnyRouteSelected(order, isPff) || status === "ROUTES_IN_PROGRESS") {
@@ -271,6 +287,33 @@ function buildCurrentAndNext(
 
     case "select_route":
       if (isPff) {
+        const paymentRejected = order.payment_route_selection_status === "rejected";
+        const goodsRejected = order.goods_route_selection_status === "rejected";
+        if (paymentRejected || goodsRejected) {
+          return {
+            currentStatus: `A transporter rejected ${
+              paymentRejected && goodsRejected
+                ? "the payment and goods routes"
+                : paymentRejected
+                  ? "the payment route"
+                  : "the goods route"
+            } for this PFF shipment.`,
+            nextStatus: `${
+              paymentRejected
+                ? `${receiver} should reselect the payment route`
+                : ""
+            }${paymentRejected && goodsRejected ? ", and " : ""}${
+              goodsRejected
+                ? `${sender} should reselect the goods route`
+                : ""
+            } on the Routes page.`,
+            waitingForYou:
+              (paymentRejected && (r === "receiver" || role === "admin")) ||
+              (goodsRejected && (r === "sender" || role === "admin"))
+                ? "WAITING FOR YOU TO RESELECT THE REJECTED ROUTE ON ROUTES PAGE"
+                : null,
+          };
+        }
         return {
           currentStatus: `The sender (${sender}) accepted the order. This is a PFF (advanced payment) shipment, so payment and goods routes still need to be chosen.`,
           nextStatus: `${receiver} should select the payment route, and ${sender} should select the goods route, on the Routes page. Delivery cannot start until both routes are chosen and confirmed.`,
@@ -282,12 +325,22 @@ function buildCurrentAndNext(
                 : null,
         };
       }
+      if (order.route_selection_status === "rejected") {
+        return {
+          currentStatus: `A transporter rejected the selected route for ${receiver}'s order.`,
+          nextStatus: `The sender (${sender}) should open the Routes page and select a different route (or reselect the same one) so transporters can be asked again.`,
+          waitingForYou:
+            r === "sender" || role === "admin"
+              ? "WAITING FOR YOU TO RESELECT A ROUTE ON ROUTES PAGE"
+              : null,
+        };
+      }
       return {
         currentStatus: `The sender (${sender}) accepted the order from ${receiver}. No preferred route has been selected yet.`,
-        nextStatus: `The receiver (${receiver}) should open the Routes page, compare route costs, and select the preferred route for this order.`,
+        nextStatus: `The sender (${sender}) should open the Routes page, compare route costs, and select the goods route for this order.`,
         waitingForYou:
-          r === "receiver" || role === "admin"
-            ? "WAITING FOR YOU TO SELECT PREFERRED ROUTE ON ROUTES PAGE"
+          r === "sender" || role === "admin"
+            ? "WAITING FOR YOU TO SELECT THE GOODS ROUTE ON ROUTES PAGE"
             : null,
       };
 

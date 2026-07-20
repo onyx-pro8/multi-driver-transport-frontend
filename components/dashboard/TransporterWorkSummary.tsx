@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, DollarSign, Loader2, Package, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { isActiveTransporterConfirmation } from "@/components/orders/ConfirmationPanel";
 import { getTransporterConfirmations, getTransporterQuoteQueue } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -65,13 +66,20 @@ export function TransporterWorkSummary() {
         getTransporterConfirmations(),
         getTransporterQuoteQueue(),
       ]);
-      const pendingConfirmations = confirmations.filter((i) => i.status === "pending").length;
+      const pendingConfirmations = confirmations.filter(
+        (i) => isActiveTransporterConfirmation(i) && i.status === "pending",
+      ).length;
       const quotesNeeded = quotes.filter(
         (q) => q.segment.cost_status === "requested" || q.segment.cost_status === "missing"
       ).length;
       const activeOrderIds = new Set(
         confirmations
-          .filter((i) => i.status === "accepted" && i.route_selection_status === "confirmed")
+          .filter(
+            (i) =>
+              isActiveTransporterConfirmation(i) &&
+              i.status === "accepted" &&
+              i.route_selection_status === "confirmed",
+          )
           .map((i) => i.order_id)
       );
       setCounts({
