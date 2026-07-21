@@ -5,6 +5,7 @@ import { Loader2, Route, ShieldCheck } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { ConfirmationPanel, isActiveTransporterConfirmation } from "@/components/orders/ConfirmationPanel";
 import { TransporterOrdersPanel } from "@/components/orders/TransporterOrdersPanel";
+import { useAuth } from "@/hooks/useAuth";
 import { getTransporterConfirmations } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,8 @@ import type { TransporterConfirmationItem } from "@/types";
 type TabId = "confirmations" | "my-routes";
 
 export function ConfirmationsPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab") === "my-routes" ? "my-routes" : "confirmations";
   const [tab, setTab] = useState<TabId>(initialTab);
@@ -114,9 +117,13 @@ export function ConfirmationsPage() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" />
             <div>
-              <h2 className="text-lg font-semibold">My shipments</h2>
+              <h2 className="text-lg font-semibold">
+                {isAdmin ? "All shipments" : "My shipments"}
+              </h2>
               <p className="text-xs text-muted-foreground">
-                Respond to requests, set prices, and track deliveries on your routes.
+                {isAdmin
+                  ? "Respond to requests, set prices, and track deliveries across all transporters."
+                  : "Respond to requests, set prices, and track deliveries on your routes."}
               </p>
             </div>
           </div>

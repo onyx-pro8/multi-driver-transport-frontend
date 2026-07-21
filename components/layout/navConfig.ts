@@ -74,13 +74,13 @@ export const NAV_SECTIONS: NavSection[] = [
     roles: ["admin"],
     items: [
       {
-        label: "Confirmations",
+        label: "Shipments",
         href: "/transporter/confirmations",
         icon: CheckCircle2,
         roles: ["admin"],
         activePrefixes: ["/confirmations/order/"],
       },
-      { label: "Quote requests", href: "/quote-requests", icon: DollarSign, roles: ["admin"] },
+      { label: "Set prices", href: "/quote-requests", icon: DollarSign, roles: ["admin"] },
       { label: "Routes", href: "/routes", icon: Route, roles: ["admin"] },
     ],
   },

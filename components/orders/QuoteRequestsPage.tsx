@@ -224,12 +224,12 @@ export function QuoteRequestsPage() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
-                Quote requests
+                {user?.role === "admin" ? "Set prices" : "Quote requests"}
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Grouped by order, route, and segment. Enter one quote per leg — it applies to every
-                route on that order that uses the same segment and leg type (payment vs goods on PFF
-                orders are priced separately).
+                {user?.role === "admin"
+                  ? "All pending quotes across transporters, grouped by order, route, and segment. Enter one quote per leg — it applies to every route on that order that uses the same segment and leg type."
+                  : "Grouped by order, route, and segment. Enter one quote per leg — it applies to every route on that order that uses the same segment and leg type (payment vs goods on PFF orders are priced separately)."}
               </p>
             </div>
             <Button
