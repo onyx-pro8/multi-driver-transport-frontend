@@ -227,6 +227,9 @@ interface OrderGroup {
   route_id: number | null;
   /** Distinct route labels in this order (e.g. "Payment route 1", "Goods route 1"). */
   route_labels: string[];
+  sender_name: string | null;
+  receiver_name: string | null;
+  transporters: string[];
   sender_address: string;
   destination_address: string;
   items: TransporterConfirmationItem[];
@@ -257,6 +260,9 @@ function buildGroups(
         order_id: item.order_id,
         route_id: options.groupByRoute ? item.route_id : null,
         route_labels: [],
+        sender_name: item.sender_name ?? null,
+        receiver_name: item.receiver_name ?? null,
+        transporters: [],
         sender_address: item.sender_address,
         destination_address: item.destination_address,
         items: [],
@@ -273,6 +279,11 @@ function buildGroups(
     group.items.push(item);
     if (!group.route_labels.includes(item.route_label)) {
       group.route_labels.push(item.route_label);
+    }
+    for (const transporter of item.transporters ?? []) {
+      if (!group.transporters.includes(transporter)) {
+        group.transporters.push(transporter);
+      }
     }
     if (item.status === "pending") group.pendingCount += 1;
     else if (item.status === "accepted") group.acceptedCount += 1;
@@ -475,8 +486,16 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground mt-1">
+                  {selectedGroup.sender_name || "Sender"} {"->"} {selectedGroup.receiver_name || "Receiver"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
                   {selectedGroup.sender_address || "—"} → {selectedGroup.destination_address || "—"}
                 </p>
+                {selectedGroup.transporters.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Transporters: {selectedGroup.transporters.join(" · ")}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {selectedGroup.pendingCount} pending · {selectedGroup.acceptedCount} accepted ·{" "}
                   {selectedGroup.rejectedCount} rejected
@@ -616,8 +635,16 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                 )}
               </p>
               <p className="text-xs text-muted-foreground mt-1 truncate">
+                {group.sender_name || "Sender"} {"->"} {group.receiver_name || "Receiver"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
                 {group.sender_address || "—"} → {group.destination_address || "—"}
               </p>
+              {group.transporters.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1 truncate">
+                  Transporters: {group.transporters.join(" · ")}
+                </p>
+              )}
               {packageSummary && (
                 <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
                   <Package className="h-3 w-3 shrink-0" />
@@ -781,6 +808,16 @@ function SegmentCard({
                 {handoffLabel}
               </p>
             ) : null}
+            <p className="text-xs text-muted-foreground mt-1">
+              Transporter:{" "}
+              <span className="font-medium text-foreground">{item.transporter_name}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Driver:{" "}
+              <span className="font-medium text-foreground">
+                {item.driver_name ?? "—"}
+              </span>
+            </p>
             <p className="text-xs text-muted-foreground mt-1">
               Request sent: {new Date(item.sent_at).toLocaleString()}
             </p>
