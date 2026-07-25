@@ -149,7 +149,7 @@ export function OrdersPage() {
   }, [orders]);
 
   const displayedOrders = useMemo(() => {
-    let list =
+    const list =
       activeFilters.length === 0
         ? [...orders]
         : orders.filter((o) =>

@@ -27,7 +27,6 @@ import {
   selectRoute,
 } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
-import { formatBookingFeePercent } from "@/lib/pricing";
 import { segmentPricingHint } from "@/lib/zonePricing";
 import type {
   Order,
