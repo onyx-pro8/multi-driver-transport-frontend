@@ -16,10 +16,10 @@ import {
 import {
   connectionMode,
   isHubMode,
-  makeHubIcon,
   normalizeTransportMode,
   TRANSPORT_MODE_META,
 } from "@/lib/transportMode";
+import { makeHubIcon } from "@/lib/transportModeIcons";
 import { graphNodeToDriverZone } from "@/lib/graphNodeZone";
 import { ZONE_MAP_TOOLTIP_CLASS, ZoneMapTooltip } from "@/components/map/ZoneMapTooltip";
 import type {
