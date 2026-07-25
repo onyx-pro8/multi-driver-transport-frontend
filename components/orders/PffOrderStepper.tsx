@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -134,14 +133,9 @@ export function PffOrderStepper({
       {order.pickup_ready_at && (
         <p className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1.5">
           <Check className="h-3.5 w-3.5" />
-          Pickup available sent. Payment leg runs on the payment route; goods follow after
-          payment is delivered.
+          Pickup available sent. Payment leg runs first; goods follow after.
         </p>
       )}
-
-      <Link href={`/orders/${order.id}/tracking`} className="text-xs text-primary hover:underline">
-        View full tracking map →
-      </Link>
     </div>
   );
 }

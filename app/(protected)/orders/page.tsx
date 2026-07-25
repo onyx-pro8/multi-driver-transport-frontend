@@ -7,7 +7,7 @@ export default function Page() {
     <RoleGuard allow={["sender", "receiver", "admin"]}>
       <DashboardShell
         title="Orders"
-        subtitle="Submit, track, and confirm deliveries between senders and receivers."
+        subtitle="Manage shipments between senders and receivers."
       >
         <OrdersPage />
       </DashboardShell>

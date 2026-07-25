@@ -502,6 +502,36 @@ const dropoffIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+const currentLocationIcon = L.divIcon({
+  className: "current-delivery-marker",
+  html: `<div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+    <div style="position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(37,99,235,.22);animation:currentPulse 1.5s ease-out infinite"></div>
+    <div style="position:relative;width:16px;height:16px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 3px rgba(37,99,235,.4),0 2px 8px rgba(0,0,0,.45)"></div>
+  </div>
+  <style>@keyframes currentPulse{0%{transform:scale(.7);opacity:.9}70%{transform:scale(1.15);opacity:0}100%{transform:scale(1.15);opacity:0}}</style>`,
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
+});
+
+export interface H3MapCurrentLocation {
+  lat: number;
+  lng: number;
+  label?: string | null;
+}
+
+export type RouteProgressPhase = "completed" | "current" | "upcoming";
+
+export interface H3MapProgressRouteLeg {
+  points: { lat: number; lng: number }[];
+  phase: RouteProgressPhase;
+}
+
+export const ROUTE_PROGRESS_LINE_COLORS: Record<RouteProgressPhase, string> = {
+  completed: "#22c55e",
+  current: "#2563eb",
+  upcoming: "#334155",
+};
+
 export interface H3MapAdjacentPair {
   from_cell: string;
   to_cell: string;
@@ -678,6 +708,11 @@ export interface H3MapViewProps {
    */
   routeSegments?: { lat: number; lng: number }[][] | null;
   /**
+   * Progress-colored route legs (completed / current / upcoming).
+   * When set, preferred over uniform `routeSegments` coloring.
+   */
+  progressRouteLegs?: H3MapProgressRouteLeg[] | null;
+  /**
    * Highlighted legs drawn on top of `routeSegments` (e.g. the transporter's
    * priced segment). Sea legs follow maritime routing; air legs use flight-path
    * styling; land legs follow handoff waypoints.
@@ -702,6 +737,8 @@ export interface H3MapViewProps {
   pathHubZones?: DriverZone[];
   /** Names/addresses shown on pickup (sender) and drop-off (receiver) markers. */
   endpointLabels?: H3MapEndpointLabels | null;
+  /** Live package position along the multi-transporter route. */
+  currentLocation?: H3MapCurrentLocation | null;
   /**
    * Hover tooltips on saved-zone cells are expensive (one Leaflet Tooltip
    * per cell). Defaults to `interactive`; set false on previews / thumbnails.
@@ -774,12 +811,14 @@ export function H3MapView({
   transferCells = EMPTY_CELLS,
   adjacentPairs = EMPTY_ADJACENT,
   routeSegments = null,
+  progressRouteLegs = null,
   accentRouteLegs = null,
   accentRouteLabel = null,
   handoffMarkers = EMPTY_HANDOFF,
   endpointCoords = null,
   pathHubZones = EMPTY_ZONES,
   endpointLabels = null,
+  currentLocation = null,
   showZoneTooltips,
   focusZone = null,
   focusHandoff = null,
@@ -1013,12 +1052,22 @@ export function H3MapView({
       pts.push([endpointCoords.pickup.lat, endpointCoords.pickup.lng]);
       pts.push([endpointCoords.dropoff.lat, endpointCoords.dropoff.lng]);
     }
+    if (
+      currentLocation &&
+      Number.isFinite(currentLocation.lat) &&
+      Number.isFinite(currentLocation.lng)
+    ) {
+      pts.push([currentLocation.lat, currentLocation.lng]);
+    }
     pathHubZones.forEach((z) => {
       if (hasValidCoords(z.departure_hub)) pts.push([z.departure_hub!.lat, z.departure_hub!.lng]);
       if (hasValidCoords(z.arrival_hub)) pts.push([z.arrival_hub!.lat, z.arrival_hub!.lng]);
     });
     routeSegments?.forEach((seg) => {
       seg.forEach((p) => pts.push([p.lat, p.lng]));
+    });
+    progressRouteLegs?.forEach((leg) => {
+      leg.points.forEach((p) => pts.push([p.lat, p.lng]));
     });
     transferCells.forEach((c) => {
       if (isValidCell(c)) pts.push(cellCenter(c));
@@ -1045,7 +1094,7 @@ export function H3MapView({
       if (first) pts.push(cellCenter(first));
     }
     return pts;
-  }, [focusHandoffPositions, focusPositions, savedZones, conversion, endpointCoords, pathHubZones, routeSegments, selectedCells, transferCells, adjacentPairs, handoffMarkers, geofenceEnabled, boundary, fitFocus, hubPlacementEnabled, departureHub, arrivalHub, seaFitPoints]);
+  }, [focusHandoffPositions, focusPositions, savedZones, conversion, endpointCoords, currentLocation, pathHubZones, routeSegments, progressRouteLegs, selectedCells, transferCells, adjacentPairs, handoffMarkers, geofenceEnabled, boundary, fitFocus, hubPlacementEnabled, departureHub, arrivalHub, seaFitPoints]);
 
   const sessionKey = useMemo(
     () =>
@@ -1182,6 +1231,7 @@ export function H3MapView({
         transferCells={transferCells}
         adjacentPairs={adjacentPairs}
         routeSegments={routeSegments}
+        progressRouteLegs={progressRouteLegs}
         accentRouteLegs={accentRouteLegs}
         accentRouteLabel={accentRouteLabel}
         handoffMarkers={handoffMarkers}
@@ -1190,6 +1240,7 @@ export function H3MapView({
         focusHandoff={focusHandoff}
         onFocusHandoffDismiss={onFocusHandoffDismiss}
         endpointLabels={endpointLabels}
+        currentLocation={currentLocation}
         fitPositions={fitPositions}
         sessionKey={sessionKey}
         userLocation={userLocation}
@@ -1224,6 +1275,7 @@ type H3MapLeafletProps = {
   transferCells: string[];
   adjacentPairs: H3MapAdjacentPair[];
   routeSegments: { lat: number; lng: number }[][] | null;
+  progressRouteLegs: H3MapProgressRouteLeg[] | null;
   accentRouteLegs: RouteMapLeg[] | null;
   accentRouteLabel: string | null;
   handoffMarkers: H3MapHandoffMarker[];
@@ -1235,6 +1287,7 @@ type H3MapLeafletProps = {
   } | null;
   pathHubZones: DriverZone[];
   endpointLabels: H3MapEndpointLabels | null;
+  currentLocation: H3MapCurrentLocation | null;
   fitPositions: [number, number][];
   sessionKey: string;
   userLocation: UserLocation | null;
@@ -1273,6 +1326,7 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
   transferCells,
   adjacentPairs,
   routeSegments,
+  progressRouteLegs,
   accentRouteLegs,
   accentRouteLabel,
   handoffMarkers,
@@ -1281,6 +1335,7 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
   endpointCoords,
   pathHubZones,
   endpointLabels,
+  currentLocation,
   fitPositions,
   sessionKey,
   userLocation,
@@ -1523,8 +1578,6 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
                 direction="bottom"
                 offset={[0, 12]}
                 opacity={1}
-                permanent
-                interactive
                 className={`${MAP_WIDE_TOOLTIP_CLASS} ${MAP_ENDPOINT_TOOLTIP_CLASS}`}
               >
                 <MapWideTooltipContent
@@ -1540,11 +1593,9 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
               zIndexOffset={600}
             >
               <Tooltip
-                direction="bottom"
-                offset={[0, 12]}
+                direction="top"
+                offset={[0, -12]}
                 opacity={1}
-                permanent
-                interactive
                 className={`${MAP_WIDE_TOOLTIP_CLASS} ${MAP_ENDPOINT_TOOLTIP_CLASS}`}
               >
                 <MapWideTooltipContent
@@ -1554,7 +1605,81 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
                 />
               </Tooltip>
             </Marker>
-            {routeSegments && routeSegments.length > 0 ? (
+            {progressRouteLegs && progressRouteLegs.length > 0 ? (
+              <>
+                {progressRouteLegs.map((leg, i) =>
+                  leg.points.length >= 2 ? (
+                    <LandRouteChainPolyline
+                      key={`progress-leg-${i}-${leg.phase}`}
+                      points={leg.points}
+                      pathOptions={{
+                        color: ROUTE_PROGRESS_LINE_COLORS[leg.phase],
+                        weight: leg.phase === "current" ? 6 : 4,
+                        opacity: leg.phase === "upcoming" ? 0.75 : 0.95,
+                        lineCap: "round",
+                        lineJoin: "round",
+                        dashArray: leg.phase === "upcoming" ? "8 10" : undefined,
+                      }}
+                    />
+                  ) : null
+                )}
+                {accentRouteLegs?.map((leg, i) => {
+                  if (leg.points.length < 2) return null;
+                  const accentPath = {
+                    color: "#f59e0b",
+                    weight: 5,
+                    opacity: 1,
+                    lineCap: "round" as const,
+                    lineJoin: "round" as const,
+                  };
+                  const mode = leg.transportMode ?? "land";
+                  const accentTip =
+                    accentRouteLabel != null && accentRouteLabel !== "" ? (
+                      <Tooltip sticky direction="top">
+                        <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                          {accentRouteLabel}
+                        </span>
+                      </Tooltip>
+                    ) : null;
+                  if (mode === "sea") {
+                    return (
+                      <SeaRoutePolyline
+                        key={`accent-route-seg-${i}`}
+                        departure={leg.points[0]}
+                        arrival={leg.points[leg.points.length - 1]}
+                        pathOptions={accentPath}
+                      >
+                        {accentTip}
+                      </SeaRoutePolyline>
+                    );
+                  }
+                  if (mode === "land") {
+                    return (
+                      <LandRouteChainPolyline
+                        key={`accent-route-seg-${i}`}
+                        points={leg.points}
+                        pathOptions={accentPath}
+                      >
+                        {accentTip}
+                      </LandRouteChainPolyline>
+                    );
+                  }
+                  const meta = TRANSPORT_MODE_META[mode];
+                  return (
+                    <Polyline
+                      key={`accent-route-seg-${i}`}
+                      positions={leg.points.map((p) => [p.lat, p.lng] as [number, number])}
+                      pathOptions={{
+                        ...accentPath,
+                        dashArray: meta.dashArray,
+                      }}
+                    >
+                      {accentTip}
+                    </Polyline>
+                  );
+                })}
+              </>
+            ) : routeSegments && routeSegments.length > 0 ? (
               <>
                 {routeSegments.map((seg, i) =>
                   seg.length >= 2 ? (
@@ -1563,8 +1688,8 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
                       points={seg}
                       pathOptions={{
                         color: "#2563eb",
-                        weight: 3,
-                        opacity: 0.9,
+                        weight: 4,
+                        opacity: 0.95,
                         lineCap: "round",
                         lineJoin: "round",
                       }}
@@ -1633,9 +1758,30 @@ const H3MapLeaflet = memo(function H3MapLeaflet({
                   [pickupCenter.lat, pickupCenter.lng],
                   [dropoffCenter.lat, dropoffCenter.lng],
                 ]}
-                pathOptions={{ color: "#2563eb", dashArray: "8 8", weight: 2, opacity: 0.7 }}
+                pathOptions={{ color: "#2563eb", weight: 4, opacity: 0.85 }}
               />
             )}
+            {currentLocation &&
+              Number.isFinite(currentLocation.lat) &&
+              Number.isFinite(currentLocation.lng) && (
+                <Marker
+                  position={[currentLocation.lat, currentLocation.lng]}
+                  icon={currentLocationIcon}
+                  zIndexOffset={900}
+                >
+                  <Tooltip
+                    direction="right"
+                    offset={[16, 0]}
+                    opacity={1}
+                    className={`${MAP_WIDE_TOOLTIP_CLASS} map-current-location-tooltip`}
+                  >
+                    <div className="map-current-title">Current delivery location</div>
+                    <div className="map-current-body">
+                      {currentLocation.label || "Package is here"}
+                    </div>
+                  </Tooltip>
+                </Marker>
+              )}
           </>
         )}
 

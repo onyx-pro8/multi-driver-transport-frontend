@@ -16,7 +16,6 @@ import type { Order } from "@/types";
 import { RouteCostComparison } from "@/components/orders/RouteCostComparison";
 import { OrderPossibleRoutes } from "@/components/orders/OrderPossibleRoutes";
 import { InquiryReviewPanel } from "@/components/orders/InquiryReviewPanel";
-import { RoutesAnnounceCard } from "@/components/orders/RoutesAnnounceCard";
 
 export function RoutesPage() {
   const { user } = useAuth();
@@ -26,14 +25,12 @@ export function RoutesPage() {
   const isReceiver = user?.role === "receiver" || user?.role === "admin";
   const entity = getShipmentEntityLabels();
   const entityLabel = entity.lowercase;
-  const EntityLabel = entity.capitalized;
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const hasOrdersRef = useRef(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [costRefreshKey, setCostRefreshKey] = useState(0);
-  const [announceRefreshKey, setAnnounceRefreshKey] = useState(0);
   const [connecting, setConnecting] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -193,12 +190,10 @@ export function RoutesPage() {
             <CardHeader className="shrink-0 pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <RouteIcon className="h-4 w-4" />
-                Select {entity.indefiniteArticle} {EntityLabel}
+                Shipments
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                {isDriver
-                  ? "Pick a shipment to view routes and enter quotes for your segments."
-                  : "Pick a shipment to compare possible delivery routes by estimated cost."}
+                {isDriver ? "Pick a shipment to quote." : "Pick a shipment to compare routes."}
               </p>
             </CardHeader>
             <CardContent className="min-h-0 flex-1 overflow-y-auto pb-4">
@@ -295,16 +290,6 @@ export function RoutesPage() {
                 </Card>
               ) : (
                 <>
-                  <RoutesAnnounceCard
-                    order={selectedOrder}
-                    refreshSignal={costRefreshKey + announceRefreshKey}
-                    onOrderUpdated={(updated) => {
-                      setOrders((prev) =>
-                        prev.map((o) => (o.id === updated.id ? updated : o)),
-                      );
-                    }}
-                    onMessage={showMessage}
-                  />
                   <RouteCostComparison
                     orderId={selectedOrder.id}
                     order={selectedOrder}
@@ -315,9 +300,6 @@ export function RoutesPage() {
                     onMessage={showMessage}
                     onHighlightRoute={handleHighlightRoute}
                     highlightedZoneIds={highlightedZoneIds}
-                    onRouteSelectionChanged={() =>
-                      setAnnounceRefreshKey((k) => k + 1)
-                    }
                     paymentMapSlot={
                       selectedIsPff && showPaymentMap
                         ? mapPreview("payment")

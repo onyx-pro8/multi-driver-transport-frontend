@@ -15,8 +15,8 @@ export default function TransporterConfirmationsRoutePage() {
         title={isAdmin ? "Shipments" : "My shipments"}
         subtitle={
           isAdmin
-            ? "View all shipment requests, set prices, and track deliveries across transporters."
-            : "Respond to requests, set prices, and track your assigned deliveries."
+            ? "View shipment requests and deliveries across transporters. Set prices on the Set prices page."
+            : "Respond to requests and manage your assigned deliveries. Set quotes on Set prices."
         }
       >
         <ConfirmationsPage />

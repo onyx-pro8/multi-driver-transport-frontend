@@ -35,9 +35,11 @@ import { cn, formatDate } from "@/lib/utils";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { MapPreviewCard } from "./MapPreviewCard";
 import { QuickActions } from "./QuickActions";
-import { RecentZones } from "./RecentZones";
 import { StatCard } from "./StatCard";
 import { TransporterWorkSummary } from "./TransporterWorkSummary";
+import { LiveShipmentMapCard } from "./LiveShipmentMapCard";
+import { OrderStatusBarChart, OrderStatusDonutChart } from "./OrderStatusCharts";
+import { ORDER_WORKFLOW_FILTERS, orderMatchesWorkflowFilter } from "@/lib/orderWorkflow";
 import type {
   DashboardStats,
   DriverDashboardStats,
@@ -101,6 +103,24 @@ export function DashboardPage() {
 
 function DriverDashboard() {
   const { data, error, loading } = useDashboardStats<DriverDashboardStats>("driver");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    listOrders()
+      .then((list) => {
+        if (cancelled) return;
+        setOrders(list);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setOrdersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) return <DashboardLoading />;
   if (error) return <DashboardError message={error} />;
@@ -108,66 +128,112 @@ function DriverDashboard() {
 
   const trustPct = Math.max(0, Math.min(100, Math.round(data.trustworthiness)));
 
+  const workflowBars = ORDER_WORKFLOW_FILTERS.map((f, i) => {
+    const colors = ["#8b5cf6", "#0ea5e9", "#22c55e", "#ef4444", "#64748b"];
+    return {
+      label: f.shortLabel,
+      value: orders.filter((o) => orderMatchesWorkflowFilter(o, f.id)).length,
+      color: colors[i % colors.length],
+    };
+  });
+
+  const delivering = orders.filter(
+    (o) =>
+      o.status === "delivering" ||
+      ["PICKED_UP", "IN_TRANSIT", "PICKUP_AVAILABLE", "PAYMENT_DELIVERED"].includes(
+        o.tracking_status
+      )
+  ).length;
+  const submitted = orders.filter(
+    (o) => o.status === "submitted" || o.tracking_status === "AWAITING_CONNECT"
+  ).length;
+  const received = orders.filter(
+    (o) => o.status === "received" || o.tracking_status === "DELIVERED"
+  ).length;
+
+  const statusSlices = [
+    { label: "In flight", value: delivering, color: "#3b82f6" },
+    { label: "Submitted", value: submitted, color: "#f59e0b" },
+    { label: "Delivered", value: received, color: "#22c55e" },
+  ];
+
+  const recent = orders.slice(0, 5);
+
   return (
     <>
       <TransporterWorkSummary />
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Driver zones"
-          value={data.total_driver_zones}
-          icon={Shapes}
-          hint={`${data.available_zones} available`}
-          accent="blue"
-        />
-        <StatCard
-          label="H3 cells"
-          value={data.total_h3_cells}
-          icon={Hexagon}
-          hint="Across all zones"
-          accent="violet"
-        />
-        <StatCard
-          label="Followers"
-          value={data.followers}
-          icon={Users}
-          hint="Senders who follow you"
-          accent="green"
-        />
-        <StatCard
-          label="Trust score"
-          value={trustPct}
-          icon={Star}
-          hint="Higher is better"
-          accent="amber"
-        />
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <OrderStatusDonutChart title="Shipment volume" slices={statusSlices} />
+        <OrderStatusBarChart title="Workflow status" bars={workflowBars} />
       </section>
+
+      <LiveShipmentMapCard orders={orders} role="driver" loading={ordersLoading} />
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <RecentZones zones={data.recent_zones ?? []} />
           <Card>
-            <CardHeader>
-              <CardTitle>Trustworthiness</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-4 w-4" /> Recent shipments
+              </CardTitle>
+              <Link
+                href="/transporter/confirmations"
+                className="text-xs text-primary font-medium hover:underline inline-flex items-center gap-1"
+              >
+                View all <ArrowRight className="h-3 w-3" />
+              </Link>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span className="text-muted-foreground">Score</span>
-                <span className="font-semibold tabular-nums">{trustPct}/100</span>
-              </div>
-              <div className="h-2.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${trustPct}%` }}
-                />
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Senders raise your trust score each time they follow you. Keep
-                zones available and respond quickly to orders to attract more
-                followers.
-              </p>
+              {ordersLoading ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  Loading…
+                </div>
+              ) : recent.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  <p>No assigned shipments yet.</p>
+                  <Link
+                    href="/transporter/confirmations"
+                    className="text-primary hover:underline font-medium mt-2 inline-block"
+                  >
+                    Open My shipments →
+                  </Link>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border/70">
+                  {recent.map((order) => (
+                    <RecentOrderRow
+                      key={order.id}
+                      order={order}
+                      counterpartyLabel={
+                        order.sender_name && order.receiver_name
+                          ? `${order.sender_name} → ${order.receiver_name}`
+                          : order.receiver_name || order.sender_name || `Order #${order.id}`
+                      }
+                      href="/transporter/confirmations"
+                    />
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
+
+          <section className="grid grid-cols-2 gap-4">
+            <StatCard
+              label="Driver zones"
+              value={data.total_driver_zones}
+              icon={Shapes}
+              hint={`${data.available_zones} available`}
+              accent="blue"
+            />
+            <StatCard
+              label="Trust score"
+              value={trustPct}
+              icon={Star}
+              hint={`${data.followers} followers`}
+              accent="amber"
+            />
+          </section>
         </div>
         <div className="space-y-6">
           <QuickActions role="driver" />
@@ -184,19 +250,19 @@ function DriverDashboard() {
 
 function SenderDashboard() {
   const { data, error, loading } = useDashboardStats<SenderDashboardStats>("sender");
-  const [recent, setRecent] = useState<Order[]>([]);
-  const [recentLoading, setRecentLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     listOrders()
-      .then((orders) => {
+      .then((list) => {
         if (cancelled) return;
-        setRecent(orders.slice(0, 5));
+        setOrders(list);
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) setRecentLoading(false);
+        if (!cancelled) setOrdersLoading(false);
       });
     return () => {
       cancelled = true;
@@ -207,38 +273,31 @@ function SenderDashboard() {
   if (error) return <DashboardError message={error} />;
   if (!data) return null;
 
+  const workflowBars = ORDER_WORKFLOW_FILTERS.map((f, i) => {
+    const colors = ["#8b5cf6", "#0ea5e9", "#22c55e", "#ef4444", "#64748b"];
+    return {
+      label: f.shortLabel,
+      value: orders.filter((o) => orderMatchesWorkflowFilter(o, f.id)).length,
+      color: colors[i % colors.length],
+    };
+  });
+
+  const statusSlices = [
+    { label: "In flight", value: data.order_counts.delivering, color: "#3b82f6" },
+    { label: "Submitted", value: data.order_counts.submitted, color: "#f59e0b" },
+    { label: "Delivered", value: data.order_counts.received, color: "#22c55e" },
+  ];
+
+  const recent = orders.slice(0, 5);
+
   return (
     <>
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="In flight"
-          value={data.order_counts.delivering}
-          icon={Truck}
-          hint="Currently delivering"
-          accent="blue"
-        />
-        <StatCard
-          label="Submitted"
-          value={data.order_counts.submitted}
-          icon={Clock}
-          hint="Awaiting pickup"
-          accent="amber"
-        />
-        <StatCard
-          label="Delivered"
-          value={data.order_counts.received}
-          icon={CheckCircle2}
-          hint="Successfully received"
-          accent="green"
-        />
-        <StatCard
-          label="Transporters"
-          value={data.available_drivers}
-          icon={Truck}
-          hint="Available to follow"
-          accent="violet"
-        />
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <OrderStatusDonutChart title="Shipment volume" slices={statusSlices} />
+        <OrderStatusBarChart title="Workflow status" bars={workflowBars} />
       </section>
+
+      <LiveShipmentMapCard orders={orders} role="sender" loading={ordersLoading} />
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -255,18 +314,18 @@ function SenderDashboard() {
               </Link>
             </CardHeader>
             <CardContent>
-              {recentLoading ? (
+              {ordersLoading ? (
                 <div className="py-6 text-center text-sm text-muted-foreground">
                   Loading…
                 </div>
               ) : recent.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  <p>You haven&apos;t submitted any orders yet.</p>
+                  <p>No shipments yet.</p>
                   <Link
                     href="/orders"
                     className="text-primary hover:underline font-medium mt-2 inline-block"
                   >
-                    Create your first order →
+                    Open Orders →
                   </Link>
                 </div>
               ) : (
@@ -344,42 +403,30 @@ function ReceiverDashboard() {
   const pending = orders.filter(
     (o) => o.tracking_status === "IN_TRANSIT" && o.receiver_user_id === user?.id
   );
-  const incoming = orders.filter(
-    (o) => o.status === "submitted" && o.receiver_user_id === user?.id
-  );
+
+  const statusSlices = [
+    { label: "In flight", value: data.order_counts.delivering, color: "#3b82f6" },
+    { label: "Incoming", value: data.order_counts.submitted, color: "#f59e0b" },
+    { label: "Received", value: data.order_counts.received, color: "#22c55e" },
+  ];
+
+  const workflowBars = ORDER_WORKFLOW_FILTERS.map((f, i) => {
+    const colors = ["#8b5cf6", "#0ea5e9", "#22c55e", "#ef4444", "#64748b"];
+    return {
+      label: f.shortLabel,
+      value: orders.filter((o) => orderMatchesWorkflowFilter(o, f.id)).length,
+      color: colors[i % colors.length],
+    };
+  });
 
   return (
     <>
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Awaiting confirmation"
-          value={data.order_counts.delivering}
-          icon={Truck}
-          hint="Tap to confirm receipt"
-          accent="blue"
-        />
-        <StatCard
-          label="Incoming"
-          value={data.order_counts.submitted}
-          icon={Clock}
-          hint="Pending pickup"
-          accent="amber"
-        />
-        <StatCard
-          label="Received"
-          value={data.order_counts.received}
-          icon={CheckCircle2}
-          hint="Confirmed deliveries"
-          accent="green"
-        />
-        <StatCard
-          label="Total"
-          value={data.total_orders}
-          icon={Package}
-          hint="All orders to you"
-          accent="violet"
-        />
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <OrderStatusDonutChart title="Shipment volume" slices={statusSlices} />
+        <OrderStatusBarChart title="Workflow status" bars={workflowBars} />
       </section>
+
+      <LiveShipmentMapCard orders={orders} role="receiver" loading={ordersLoading} />
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -431,31 +478,6 @@ function ReceiverDashboard() {
                         {updating === order.id ? "Updating…" : "Mark delivered"}
                       </Button>
                     </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-4 w-4" /> Incoming ({incoming.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {incoming.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Nothing on the way at the moment.
-                </p>
-              ) : (
-                <ul className="divide-y divide-border/70">
-                  {incoming.slice(0, 5).map((order) => (
-                    <RecentOrderRow
-                      key={order.id}
-                      order={order}
-                      counterpartyLabel={order.sender_name}
-                    />
                   ))}
                 </ul>
               )}
@@ -708,9 +730,11 @@ function SystemStat({
 function RecentOrderRow({
   order,
   counterpartyLabel,
+  href,
 }: {
   order: Order;
   counterpartyLabel: string;
+  href?: string;
 }) {
   const StatusIcon =
     order.status === "received"
@@ -725,7 +749,11 @@ function RecentOrderRow({
         ? "text-blue-600 dark:text-blue-300"
         : "text-amber-600 dark:text-amber-300";
   return (
-    <li className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+    <li>
+      <Link
+        href={href ?? `/orders?orderId=${order.id}`}
+        className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-muted/40 -mx-2 px-2 rounded-lg transition-colors"
+      >
       <div className="flex items-center gap-3 min-w-0">
         <div className={cn("h-9 w-9 rounded-lg bg-muted flex items-center justify-center shrink-0", tone)}>
           <StatusIcon className="h-4 w-4" />
@@ -741,6 +769,7 @@ function RecentOrderRow({
         <p className="text-xs font-medium capitalize">{order.status}</p>
         <p className="text-[11px] text-muted-foreground">{formatDate(order.submitted_at)}</p>
       </div>
+      </Link>
     </li>
   );
 }

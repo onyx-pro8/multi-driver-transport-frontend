@@ -12,11 +12,36 @@
 
 /* Wider map tooltips — default Leaflet width wraps one word per line. */
 .leaflet-tooltip.map-wide-tooltip {
-  min-width: 220px;
-  max-width: 320px;
-  white-space: normal;
+  min-width: 240px;
+  max-width: 360px;
+  white-space: normal !important;
   padding: 8px 12px;
   line-height: 1.35;
+}
+
+/* Current package location — keep readable, never collapse to 1 word/line. */
+.leaflet-tooltip.map-current-location-tooltip {
+  min-width: 280px !important;
+  max-width: 420px !important;
+  width: max-content;
+  white-space: normal !important;
+  padding: 10px 14px !important;
+  line-height: 1.4;
+  z-index: 1200 !important;
+  pointer-events: none;
+  font-size: 12px;
+}
+
+.leaflet-tooltip.map-current-location-tooltip .map-current-title {
+  font-weight: 700;
+  color: #1d4ed8;
+  margin-bottom: 4px;
+}
+
+.leaflet-tooltip.map-current-location-tooltip .map-current-body {
+  font-weight: 600;
+  white-space: normal;
+  word-break: break-word;
 }
 
 /* Compact hover label on connection-point pins. */

@@ -148,7 +148,7 @@ export function getSegmentNodeState(
 
 export const DELIVERY_NODE_COLORS: Record<DeliveryNodePhase, string> = {
   completed: "bg-green-500 border-green-500 shadow-sm shadow-green-500/30",
-  current: "bg-primary border-primary ring-4 ring-primary/25 scale-110",
+  current: "bg-primary border-primary",
   upcoming: "bg-muted border-border",
 };
 

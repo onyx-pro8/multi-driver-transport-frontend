@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -15,9 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { confirmSegment, rejectSegment, updateSegmentLegStatus, applyManualSegmentCost } from "@/lib/api";
+import { confirmSegment, getOrderById, rejectSegment, updateSegmentLegStatus } from "@/lib/api";
 import {
   canSegmentMarkInTransit,
   canSegmentMarkPickedUp,
@@ -27,12 +27,17 @@ import {
   SEGMENT_LEG_LABELS,
 } from "@/lib/trackingActions";
 import { cn, formatCurrency } from "@/lib/utils";
-import type { RouteConfirmationStatus, SegmentCostStatus, TransporterConfirmationItem } from "@/types";
+import type {
+  Order,
+  RouteConfirmationStatus,
+  SegmentCostStatus,
+  TransporterConfirmationItem,
+} from "@/types";
 import { RouteStatusBadge, TrackingStatusBadge } from "@/components/orders/RouteStatusBadge";
 import { OrderProgressBar } from "@/components/orders/SegmentTimeline";
-import { canTrackOrder, TrackOrderLink } from "@/components/orders/TrackOrderLink";
 import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
 import { RejectSegmentDialog } from "@/components/orders/RejectSegmentDialog";
+import { OrderDetailModal } from "@/components/orders/OrderDetailModal";
 import { PACKAGE_TYPE_LABELS } from "@/lib/pricing";
 import {
   defaultPaymentPackageEntry,
@@ -337,8 +342,10 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [actingId, setActingId] = useState<number | null>(null);
   const [legUpdatingId, setLegUpdatingId] = useState<number | null>(null);
-  const [manualInputs, setManualInputs] = useState<Record<number, string>>({});
-  const [savingCostId, setSavingCostId] = useState<number | null>(null);
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailSegmentIds, setDetailSegmentIds] = useState<number[]>([]);
+  const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
 
   const { activeGroups, historyGroups } = useMemo(() => {
     const activeItems = items.filter(isActiveTransporterConfirmation);
@@ -359,25 +366,49 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
     (i) => isActiveTransporterConfirmation(i) && i.status === "pending",
   ).length;
 
-  async function handleManualSave(item: TransporterConfirmationItem) {
-    const raw =
-      manualInputs[item.segment_id] ??
-      (item.final_cost != null ? String(item.final_cost) : "");
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value < 0) {
-      onMessage?.("Enter a valid cost >= 0", "error");
-      return;
-    }
-    setSavingCostId(item.segment_id);
+  async function openOrderDetail(orderId: number, segmentIds: number[]) {
+    setDetailLoadingId(orderId);
+    setDetailSegmentIds(segmentIds);
     try {
-      await applyManualSegmentCost(item.segment_id, value);
-      onMessage?.("Segment cost saved.");
-      onUpdated?.();
+      const order = await getOrderById(orderId);
+      setDetailOrder(order);
+      setDetailOpen(true);
     } catch (err) {
-      onMessage?.(err instanceof Error ? err.message : "Failed to save segment cost", "error");
+      onMessage?.(err instanceof Error ? err.message : "Failed to load order details", "error");
     } finally {
-      setSavingCostId(null);
+      setDetailLoadingId(null);
     }
+  }
+
+  function OrderDetailsButton({
+    orderId,
+    segmentIds,
+    className,
+  }: {
+    orderId: number;
+    segmentIds: number[];
+    className?: string;
+  }) {
+    const loading = detailLoadingId === orderId;
+    return (
+      <Button
+        type="button"
+        size="lg"
+        className={cn("h-11 min-w-[11rem] px-5 text-sm font-semibold shadow-sm", className)}
+        disabled={loading}
+        onClick={(e) => {
+          e.stopPropagation();
+          void openOrderDetail(orderId, segmentIds);
+        }}
+      >
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Package className="h-4 w-4" />
+        )}
+        Order details
+      </Button>
+    );
   }
 
   async function handleAccept(segmentId: number) {
@@ -451,6 +482,7 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
       (selectedGroup.schedule_inactive_zones?.length ?? 0) > 0;
     const rejectingItem =
       selectedGroup.items.find((i) => i.segment_id === rejectingId) ?? null;
+    const mySegmentIds = selectedGroup.items.map((i) => i.segment_id);
 
     return (
       <div className="space-y-4">
@@ -523,13 +555,11 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
                   </div>
                 )}
               </div>
-              {selectedGroup.actionable &&
-                canTrackOrder({
-                  tracking_status: trackingItem.order_tracking_status,
-                  route_selection_status: trackingItem.route_selection_status,
-                }) && (
-                <TrackOrderLink orderId={selectedGroup.order_id} className="shrink-0" />
-              )}
+              <OrderDetailsButton
+                orderId={selectedGroup.order_id}
+                segmentIds={mySegmentIds}
+                className="shrink-0"
+              />
             </div>
           </CardHeader>
         </Card>
@@ -550,8 +580,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
               <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
                 <p className="font-medium">Route may be incomplete</p>
                 <p className="text-xs mt-1 opacity-90">
-                  This path may not fully connect pickup to destination. Confirm your segment
-                  cost only if you can cover your leg when the route is active.
+                  This path may not fully connect pickup to destination. Accept your segment
+                  only if you can cover your leg when the route is active.
                 </p>
               </div>
             )}
@@ -561,29 +591,32 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
           </div>
         )}
 
-        {[...selectedGroup.items]
-          .sort(sortOrderSegments)
-          .map((item) => (
-            <SegmentCard
-              key={item.confirmation_id}
-              item={item}
-              readOnly={!selectedGroup.actionable}
-              actingId={actingId}
-              legUpdatingId={legUpdatingId}
-              manualInput={
-                manualInputs[item.segment_id] ??
-                (item.final_cost != null ? String(item.final_cost) : "")
-              }
-              savingCost={savingCostId === item.segment_id}
-              onManualInputChange={(value) =>
-                setManualInputs((prev) => ({ ...prev, [item.segment_id]: value }))
-              }
-              onManualSave={() => void handleManualSave(item)}
-              onAccept={handleAccept}
-              onSegmentLegAction={handleSegmentLegAction}
-              onOpenReject={setRejectingId}
-            />
-          ))}
+        <div>
+          <h3 className="text-sm font-semibold mb-1">Your segments</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            Your assigned zones are highlighted. Segment prices are view-only here — set quotes on{" "}
+            <Link href="/quote-requests" className="text-primary hover:underline font-medium">
+              Set prices
+            </Link>
+            .
+          </p>
+          <div className="space-y-3">
+            {[...selectedGroup.items]
+              .sort(sortOrderSegments)
+              .map((item) => (
+                <SegmentCard
+                  key={item.confirmation_id}
+                  item={item}
+                  readOnly={!selectedGroup.actionable}
+                  actingId={actingId}
+                  legUpdatingId={legUpdatingId}
+                  onAccept={handleAccept}
+                  onSegmentLegAction={handleSegmentLegAction}
+                  onOpenReject={setRejectingId}
+                />
+              ))}
+          </div>
+        </div>
 
         <RejectSegmentDialog
           open={rejectingId != null}
@@ -601,6 +634,24 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
             await handleReject(rejectingId, reason);
           }}
         />
+
+        <OrderDetailModal
+          open={detailOpen && detailOrder != null}
+          order={detailOrder}
+          canEditPackage={false}
+          viewerRole="driver"
+          highlightSegmentIds={detailSegmentIds}
+          counterpartyLabel={
+            detailOrder
+              ? `${detailOrder.sender_name || "Sender"} → ${detailOrder.receiver_name || "Receiver"}`
+              : ""
+          }
+          onClose={() => {
+            setDetailOpen(false);
+            setDetailOrder(null);
+          }}
+          onMessage={onMessage}
+        />
       </div>
     );
   }
@@ -608,11 +659,10 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
   function renderGroupCard(group: OrderGroup) {
     const segmentCostTotal = transporterSegmentCostTotal(group.items);
     const shipmentDistance = transporterDistanceTotalKm(group.items);
-    const orderTrackingStatus = group.items[0]?.order_tracking_status ?? "CONFIRMED";
-    const orderRouteSelectionStatus = group.items[0]?.route_selection_status ?? null;
     const hasAvailabilityIssue =
       !group.route_is_complete || (group.schedule_inactive_zones?.length ?? 0) > 0;
     const packageSummary = formatShipmentPackageSummary(group.items[0]);
+    const segmentIds = group.items.map((i) => i.segment_id);
     return (
       <Card
         key={group.key}
@@ -623,8 +673,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
         onClick={() => setSelectedKey(group.key)}
       >
         <CardContent className="py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <p className="font-medium truncate">
                 Order #{group.order_id}
                 {group.route_labels.length > 0 && (
@@ -684,16 +734,7 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {group.actionable &&
-                canTrackOrder({
-                  tracking_status: orderTrackingStatus,
-                  route_selection_status: orderRouteSelectionStatus,
-                }) && (
-                <TrackOrderLink
-                  orderId={group.order_id}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              )}
+              <OrderDetailsButton orderId={group.order_id} segmentIds={segmentIds} />
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
           </div>
@@ -708,7 +749,8 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
         <div>
           <h3 className="text-sm font-semibold">Active requests</h3>
           <p className="text-xs text-muted-foreground">
-            Pending and accepted segments on the currently selected route.
+            Pending and accepted segments on the currently selected route. Use Order details for
+            the full shipment modal, or open a card to manage your segments.
           </p>
         </div>
         {totalPending > 0 && (
@@ -740,6 +782,24 @@ export function ConfirmationPanel({ items, onUpdated, onPatchItem, onMessage }: 
           <div className="space-y-3">{historyGroups.map(renderGroupCard)}</div>
         </section>
       )}
+
+      <OrderDetailModal
+        open={detailOpen && detailOrder != null}
+        order={detailOrder}
+        canEditPackage={false}
+        viewerRole="driver"
+        highlightSegmentIds={detailSegmentIds}
+        counterpartyLabel={
+          detailOrder
+            ? `${detailOrder.sender_name || "Sender"} → ${detailOrder.receiver_name || "Receiver"}`
+            : ""
+        }
+        onClose={() => {
+          setDetailOpen(false);
+          setDetailOrder(null);
+        }}
+        onMessage={onMessage}
+      />
     </div>
   );
 }
@@ -755,10 +815,6 @@ interface SegmentCardProps {
   readOnly?: boolean;
   actingId: number | null;
   legUpdatingId: number | null;
-  manualInput: string;
-  savingCost: boolean;
-  onManualInputChange: (value: string) => void;
-  onManualSave: () => void;
   onAccept: (segmentId: number) => void;
   onSegmentLegAction: (segmentId: number, legStatus: "picked_up" | "in_transit") => void;
   onOpenReject: (segmentId: number) => void;
@@ -769,10 +825,6 @@ function SegmentCard({
   readOnly = false,
   actingId,
   legUpdatingId,
-  manualInput,
-  savingCost,
-  onManualInputChange,
-  onManualSave,
   onAccept,
   onSegmentLegAction,
   onOpenReject,
@@ -784,17 +836,27 @@ function SegmentCard({
   const handoffLabel = pffHandoffRoleLabel(item.handoff_role);
   const blockedReason = segmentActionBlockedReason(item);
   const segmentUnavailable = item.zone_schedule_active === false;
+  const zoneLabel =
+    item.zone_id != null
+      ? `Zone #${item.zone_id}`
+      : item.zone_ids && item.zone_ids.length > 0
+        ? `Zones ${item.zone_ids.join(", ")}`
+        : null;
 
   return (
     <Card
       className={cn(
-        segmentUnavailable && "border-sky-500/40 ring-1 ring-sky-500/20",
+        "border-primary/40 ring-1 ring-primary/25 bg-primary/[0.03]",
+        segmentUnavailable && "border-sky-500/40 ring-sky-500/20",
         readOnly && "opacity-95",
       )}
     >
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-primary mb-1">
+              Your segment
+            </p>
             <CardTitle className="text-base">
               {item.leg_phase ? (
                 <span className="text-violet-700 dark:text-violet-300 text-xs font-medium uppercase tracking-wide block mb-0.5">
@@ -803,6 +865,9 @@ function SegmentCard({
               ) : null}
               Segment {item.segment_index + 1}: {item.from_label} → {item.to_label}
             </CardTitle>
+            {zoneLabel && (
+              <p className="text-xs font-semibold text-primary mt-1">{zoneLabel}</p>
+            )}
             {handoffLabel ? (
               <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 font-medium">
                 {handoffLabel}
@@ -818,6 +883,14 @@ function SegmentCard({
                 {item.driver_name ?? "—"}
               </span>
             </p>
+            {item.transport_method && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Method:{" "}
+                <span className="font-medium text-foreground uppercase">
+                  {item.transport_method}
+                </span>
+              </p>
+            )}
             <p className="text-xs text-muted-foreground mt-1">
               Request sent: {new Date(item.sent_at).toLocaleString()}
             </p>
@@ -827,43 +900,21 @@ function SegmentCard({
             </p>
             <SegmentShipmentDetails item={item} />
             <p className="text-sm font-medium mt-3">Your segment cost</p>
-            {!readOnly && item.status === "pending" ? (
-              <div className="flex flex-wrap items-center gap-2 mt-1">
-                <Input
-                  className="h-8 w-28"
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={manualInput}
-                  onChange={(e) => onManualInputChange(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={savingCost || actingId === item.segment_id}
-                  onClick={onManualSave}
-                >
-                  {savingCost ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : item.cost_status === "calculated" ? (
-                    "Override"
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
-                {item.final_cost == null && (
-                  <span className="text-xs text-amber-700 dark:text-amber-300">
-                    {SEGMENT_COST_LABEL[item.cost_status] ?? "Cost not set"}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <p
-                className={cn(
-                  "text-sm font-semibold mt-1",
-                  item.final_cost != null ? "text-foreground" : "text-amber-700 dark:text-amber-300"
-                )}
-              >
-                {transporterSegmentCostLabel(item)}
+            <p
+              className={cn(
+                "text-sm font-semibold mt-1",
+                item.final_cost != null ? "text-foreground" : "text-amber-700 dark:text-amber-300"
+              )}
+            >
+              {transporterSegmentCostLabel(item)}
+            </p>
+            {item.final_cost == null && item.status === "pending" && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Set or update this quote on{" "}
+                <Link href="/quote-requests" className="text-primary hover:underline font-medium">
+                  Set prices
+                </Link>
+                .
               </p>
             )}
           </div>

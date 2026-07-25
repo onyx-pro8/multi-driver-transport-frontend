@@ -65,7 +65,7 @@ export const NAV_SECTIONS: NavSection[] = [
     roles: ["sender", "receiver", "admin"],
     items: [
       { label: "Orders", href: "/orders", icon: Package, roles: ["sender", "receiver", "admin"] },
-      { label: "Transporters", href: "/drivers", icon: Truck, roles: ["sender", "receiver", "admin"] },
+      { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "receiver", "admin"] },
       { label: "Receivers", href: "/receivers", icon: Inbox, roles: ["admin"] },
     ],
   },
@@ -81,7 +81,6 @@ export const NAV_SECTIONS: NavSection[] = [
         activePrefixes: ["/confirmations/order/"],
       },
       { label: "Set prices", href: "/quote-requests", icon: DollarSign, roles: ["admin"] },
-      { label: "Routes", href: "/routes", icon: Route, roles: ["admin"] },
     ],
   },
   {
@@ -100,7 +99,7 @@ export const NAV_SECTIONS: NavSection[] = [
     roles: ["sender", "receiver"],
     items: [
       { label: "Map view", href: "/map-view", icon: Map, roles: ["sender", "receiver"] },
-      { label: "Routes", href: "/routes", icon: Route, roles: ["sender", "receiver"] },
+      { label: "Transporters", href: "/drivers", icon: Truck, roles: ["sender", "receiver"] },
     ],
   },
   {
@@ -112,6 +111,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Zone connections", href: "/zone-connections", icon: Workflow, roles: ["admin"] },
       { label: "Zone graph", href: "/driver-zone-graph", icon: Network, roles: ["admin"] },
       { label: "Cells", href: "/h3-cells", icon: Boxes, roles: ["admin"] },
+      { label: "Transporters", href: "/drivers", icon: Truck, roles: ["admin"] },
     ],
   },
   {

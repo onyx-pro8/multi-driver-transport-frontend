@@ -46,7 +46,6 @@ import { RouteConfirmationStatusPanel } from "@/components/orders/ConfirmationPa
 import { ScheduleInactiveNotice } from "@/components/orders/ScheduleInactiveNotice";
 import { GapBridgeCandidates } from "@/components/orders/GapBridgeCandidates";
 import { Label } from "@/components/ui/label";
-import Link from "next/link";
 import {
   PFF_GOODS_ROUTE_DIRECTION,
   PFF_GOODS_ROUTE_TITLE,
@@ -731,15 +730,7 @@ export function RouteCostComparison({
       )}
       {confirmation && selectedRoute && !isPff && !isDriver && (
         <div className="space-y-3 pt-2 border-t border-border">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">Route confirmation status</p>
-            <Link
-              href={`/orders/${orderId}/tracking`}
-              className="text-xs text-primary hover:underline"
-            >
-              View tracking map →
-            </Link>
-          </div>
+          <p className="text-sm font-medium">Route confirmation status</p>
           <RouteConfirmationStatusPanel confirmation={confirmation} />
         </div>
       )}
@@ -762,18 +753,10 @@ export function RouteCostComparison({
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
           {routeIncomplete
-            ? "This order has no complete pickup-to-drop-off path right now, so route costs are not calculated."
+            ? "No complete path yet — costs are not available."
             : isDriver
-            ? "Costs for your zone segments only. Other transporters on the same route are not shown."
-            : `Pricing engine: (base × package factor) + traveling + waiting + booking fee${
-                data
-                  ? ` (${formatBookingFeePercent(data.booking_fee_rate)})`
-                  : ""
-              }. Each route segment uses its zone's pricing mode (system or own price). Land distance uses ${
-                pricingConfig?.land_distance_provider === "google"
-                  ? "Google road routing"
-                  : "H3 estimate"
-              }. Air segments always require a requested/manual cost.`}
+              ? "Your zone segment costs only."
+              : "Compare routes and select a preferred path."}
         </p>
       </div>
       <Button

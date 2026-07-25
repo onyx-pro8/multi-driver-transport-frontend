@@ -7,7 +7,7 @@ export default function RoutesRoutePage() {
     <RoleGuard allow={["sender", "receiver", "admin", "driver"]}>
       <DashboardShell
         title="Routes"
-        subtitle="Compare possible delivery routes by estimated cost for each shipment."
+        subtitle="Compare and select delivery routes."
       >
         <RoutesPage />
       </DashboardShell>

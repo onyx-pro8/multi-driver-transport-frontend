@@ -122,8 +122,8 @@ export function ConfirmationsPage() {
               </h2>
               <p className="text-xs text-muted-foreground">
                 {isAdmin
-                  ? "Respond to requests, set prices, and track deliveries across all transporters."
-                  : "Respond to requests, set prices, and track deliveries on your routes."}
+                  ? "Respond to requests and manage deliveries across all transporters. Set prices on the Set prices page."
+                  : "Respond to requests and manage your deliveries. View segment prices here; set quotes on Set prices."}
               </p>
             </div>
           </div>

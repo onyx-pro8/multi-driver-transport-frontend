@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import { Map as MapIcon } from "lucide-react";
 import { H3MapView } from "@/components/map/H3MapViewDynamic";
-import type { H3MapHandoffMarker } from "@/components/map/H3MapView";
+import type {
+  H3MapCurrentLocation,
+  H3MapHandoffMarker,
+  H3MapProgressRouteLeg,
+} from "@/components/map/H3MapView";
 import { MAP_EMPTY_CELLS } from "@/lib/mapConstants";
 import { partitionDriverZones } from "@/lib/orderDraftZoneMap";
 import { cn } from "@/lib/utils";
@@ -19,6 +23,7 @@ interface Props {
   title?: string;
   stops: RoutePathStop[];
   routeSegments?: { lat: number; lng: number }[][] | null;
+  progressRouteLegs?: H3MapProgressRouteLeg[] | null;
   handoffMarkers?: H3MapHandoffMarker[];
   savedZones?: DriverZone[];
   endpointCoords?: {
@@ -29,6 +34,7 @@ interface Props {
     senderAddress?: string;
     receiverAddress?: string;
   } | null;
+  currentLocation?: H3MapCurrentLocation | null;
   resolution?: number;
   height?: number | string;
   /** Default false — producer-friendly path-only view. */
@@ -41,10 +47,12 @@ export function RoutePathOverview({
   title = "Route path",
   stops,
   routeSegments = null,
+  progressRouteLegs = null,
   handoffMarkers = [],
   savedZones = [],
   endpointCoords = null,
   endpointLabels = null,
+  currentLocation = null,
   resolution = 15,
   height = 360,
   defaultShowZones = false,
@@ -130,9 +138,11 @@ export function RoutePathOverview({
               savedZones={zonesForMap}
               pathHubZones={pathHubZones}
               routeSegments={routeSegments}
+              progressRouteLegs={progressRouteLegs}
               handoffMarkers={handoffMarkers}
               endpointCoords={endpointCoords}
               endpointLabels={endpointLabels}
+              currentLocation={currentLocation}
               fitFocus="endpoints"
               showZoneTooltips={showZones}
             />
