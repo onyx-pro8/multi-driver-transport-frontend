@@ -21,12 +21,11 @@ import type { RouteMapLeg } from "@/lib/orderRouteChain";
 import { formatCellCoords, zoneCentroid } from "@/lib/geo";
 import {
   isHubMode,
-  makeHubIcon,
-  makeTerminalIcon,
   normalizeTransportMode,
   TRANSPORT_MODE_META,
   type HubRole,
 } from "@/lib/transportMode";
+import { makeHubIcon, makeTerminalIcon } from "@/lib/transportModeIcons";
 import type { ConvertH3Response, DriverZone, HubTerminal } from "@/types";
 import { HandoffMapTooltip } from "@/components/map/HandoffMapTooltip";
 import { LandRouteChainPolyline } from "@/components/map/LandRoutePolyline";

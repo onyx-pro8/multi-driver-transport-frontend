@@ -16,10 +16,10 @@ import {
 import {
   connectionMode,
   isHubMode,
-  makeHubIcon,
   normalizeTransportMode,
   TRANSPORT_MODE_META,
 } from "@/lib/transportMode";
+import { makeHubIcon } from "@/lib/transportModeIcons";
 import type { OrderGraph, OrderGraphNode } from "@/types";
 import { isOrderGraphZoneNode } from "@/types";
 
